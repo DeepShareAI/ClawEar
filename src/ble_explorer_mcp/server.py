@@ -90,4 +90,42 @@ def build_server(manager: BLEManager) -> _Server:
 
     impls["ble_write"] = ble_write
 
+    @mcp.tool()
+    async def ble_subscribe(address: str, characteristic_uuid: str) -> dict:
+        """Enable notifications on a characteristic; events go to the buffer."""
+        return await manager.subscribe(
+            address=address, characteristic_uuid=characteristic_uuid
+        )
+
+    impls["ble_subscribe"] = ble_subscribe
+
+    @mcp.tool()
+    async def ble_unsubscribe(address: str, characteristic_uuid: str) -> dict:
+        """Disable notifications on a characteristic."""
+        return await manager.unsubscribe(
+            address=address, characteristic_uuid=characteristic_uuid
+        )
+
+    impls["ble_unsubscribe"] = ble_unsubscribe
+
+    @mcp.tool()
+    def ble_notifications(
+        address: str | None = None,
+        since: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Pull captured notification events (optionally filter by address/since iso8601)."""
+        since_dt: datetime | None = None
+        if since is not None:
+            since_dt = datetime.fromisoformat(since)
+        events = manager.pull_notifications(
+            address=address, since=since_dt, limit=limit
+        )
+        return [
+            {**e, "ts": e["ts"].isoformat()}
+            for e in events
+        ]
+
+    impls["ble_notifications"] = ble_notifications
+
     return _Server(mcp=mcp, tool_impls=impls)

@@ -88,3 +88,34 @@ async def test_tool_ble_write_ok(sample_client):
         confirm=True,
     )
     assert r["bytes_written"] == 1
+
+
+async def test_tool_subscribe_and_notifications(sample_client):
+    mgr = _mgr(None, sample_client)
+    server = build_server(mgr)
+    await server.tool_impls["ble_connect"](address="AA:BB:CC:DD:EE:01")
+    await server.tool_impls["ble_subscribe"](
+        address="AA:BB:CC:DD:EE:01",
+        characteristic_uuid="00002a37-0000-1000-8000-00805f9b34fb",
+    )
+    sample_client.push_notification(
+        "00002a37-0000-1000-8000-00805f9b34fb", b"\x00\x42"
+    )
+    events = server.tool_impls["ble_notifications"]()
+    assert len(events) == 1
+    assert events[0]["hex"] == "0042"
+
+
+async def test_tool_unsubscribe(sample_client):
+    mgr = _mgr(None, sample_client)
+    server = build_server(mgr)
+    await server.tool_impls["ble_connect"](address="AA:BB:CC:DD:EE:01")
+    await server.tool_impls["ble_subscribe"](
+        address="AA:BB:CC:DD:EE:01",
+        characteristic_uuid="00002a37-0000-1000-8000-00805f9b34fb",
+    )
+    r = await server.tool_impls["ble_unsubscribe"](
+        address="AA:BB:CC:DD:EE:01",
+        characteristic_uuid="00002a37-0000-1000-8000-00805f9b34fb",
+    )
+    assert r["subscribed"] is False
