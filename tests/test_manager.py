@@ -147,3 +147,30 @@ async def test_list_connections_shape(sample_client):
     infos = mgr.list_connections()
     assert infos[0]["address"] == "AA:BB:CC:DD:EE:01"
     assert infos[0]["services_count"] == 1
+
+
+async def test_read_returns_decoded(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    r = await mgr.read(
+        "AA:BB:CC:DD:EE:01", "00002a38-0000-1000-8000-00805f9b34fb"
+    )
+    assert r["hex"] == "01"
+    assert r["int_le_or_none"] == 1
+    assert r["length"] == 1
+
+
+async def test_read_raises_when_not_connected():
+    from ble_explorer_mcp.manager import NotConnectedError
+
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: None,
+    )
+    with pytest.raises(NotConnectedError):
+        await mgr.read("AA:BB:CC:DD:EE:01", "00002a38-0000-1000-8000-00805f9b34fb")

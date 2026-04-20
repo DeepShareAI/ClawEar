@@ -6,6 +6,7 @@ import logging
 from typing import Any, Callable
 
 from .config import Config
+from .decode import decode_bytes
 
 log = logging.getLogger("ble_explorer_mcp.manager")
 
@@ -123,6 +124,15 @@ class BLEManager:
         if address not in clients:
             raise NotConnectedError(address)
         return clients[address]
+
+    async def read(self, address: str, characteristic_uuid: str) -> dict:
+        client = self._require_client(address)
+        raw = await client.read_gatt_char(characteristic_uuid)
+        log.info(
+            "read address=%s char=%s bytes=%d",
+            address, characteristic_uuid, len(raw),
+        )
+        return decode_bytes(bytes(raw))
 
 
 def _build_service_tree(address: str, services) -> dict:
