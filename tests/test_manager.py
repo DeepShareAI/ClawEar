@@ -231,3 +231,84 @@ async def test_write_allowlist_bypasses_confirm(sample_client):
         confirm=False,
     )
     assert r["bytes_written"] == 1
+
+
+async def test_subscribe_captures_notifications(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    await mgr.subscribe(
+        "AA:BB:CC:DD:EE:01", "00002a37-0000-1000-8000-00805f9b34fb"
+    )
+    # Fire two notifications through the fake.
+    sample_client.push_notification(
+        "00002a37-0000-1000-8000-00805f9b34fb", b"\x01\x50"
+    )
+    sample_client.push_notification(
+        "00002a37-0000-1000-8000-00805f9b34fb", b"\x01\x55"
+    )
+    events = mgr.pull_notifications()
+    assert len(events) == 2
+    assert events[0]["hex"] == "0150"
+    assert events[1]["hex"] == "0155"
+
+
+async def test_unsubscribe_stops_buffering(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    await mgr.subscribe(
+        "AA:BB:CC:DD:EE:01", "00002a37-0000-1000-8000-00805f9b34fb"
+    )
+    await mgr.unsubscribe(
+        "AA:BB:CC:DD:EE:01", "00002a37-0000-1000-8000-00805f9b34fb"
+    )
+    # After unsubscribe, pushing would not be received (fake removes cb).
+    assert (
+        "00002a37-0000-1000-8000-00805f9b34fb"
+        not in sample_client._notify_callbacks
+    )
+
+
+async def test_pull_notifications_filter_by_address(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    await mgr.subscribe(
+        "AA:BB:CC:DD:EE:01", "00002a37-0000-1000-8000-00805f9b34fb"
+    )
+    sample_client.push_notification(
+        "00002a37-0000-1000-8000-00805f9b34fb", b"\x00"
+    )
+    events = mgr.pull_notifications(address="OTHER")
+    assert events == []
+    events = mgr.pull_notifications(address="AA:BB:CC:DD:EE:01")
+    assert len(events) == 1
+
+
+async def test_notification_buffer_bounded(sample_client):
+    mgr = BLEManager(
+        config=Config(notification_buffer_size=3),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    await mgr.subscribe(
+        "AA:BB:CC:DD:EE:01", "00002a37-0000-1000-8000-00805f9b34fb"
+    )
+    for i in range(5):
+        sample_client.push_notification(
+            "00002a37-0000-1000-8000-00805f9b34fb", bytes([i])
+        )
+    events = mgr.pull_notifications()
+    # Oldest two dropped, keeps last 3.
+    assert [e["hex"] for e in events] == ["02", "03", "04"]

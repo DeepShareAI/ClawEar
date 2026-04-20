@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .config import Config
@@ -39,6 +41,9 @@ class BLEManager:
         self._client_factory = client_factory or _default_client_factory
         self._scan_lock = asyncio.Lock()
         self._last_scan: list[dict] = []
+        self._notifications: deque = deque(
+            maxlen=self._config.notification_buffer_size
+        )
 
     async def scan(
         self,
@@ -159,6 +164,42 @@ class BLEManager:
             address, characteristic_uuid, len(data), response,
         )
         return {"bytes_written": len(data)}
+
+    async def subscribe(self, address: str, characteristic_uuid: str) -> dict:
+        client = self._require_client(address)
+
+        def _callback(_handle: int, data: bytearray) -> None:
+            self._notifications.append(
+                {
+                    "address": address,
+                    "characteristic_uuid": characteristic_uuid,
+                    "hex": bytes(data).hex(),
+                    "ts": datetime.now(timezone.utc),
+                }
+            )
+
+        await client.start_notify(characteristic_uuid, _callback)
+        log.info("subscribe address=%s char=%s", address, characteristic_uuid)
+        return {"subscribed": True}
+
+    async def unsubscribe(self, address: str, characteristic_uuid: str) -> dict:
+        client = self._require_client(address)
+        await client.stop_notify(characteristic_uuid)
+        log.info("unsubscribe address=%s char=%s", address, characteristic_uuid)
+        return {"subscribed": False}
+
+    def pull_notifications(
+        self,
+        address: str | None = None,
+        since: datetime | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        events = list(self._notifications)
+        if address is not None:
+            events = [e for e in events if e["address"] == address]
+        if since is not None:
+            events = [e for e in events if e["ts"] > since]
+        return events[-limit:]
 
 
 def _build_service_tree(address: str, services) -> dict:
