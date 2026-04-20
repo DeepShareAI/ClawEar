@@ -1,0 +1,13 @@
+# Copy to ~/.config/ble-explorer-mcp/config.toml and edit.
+
+log_level = "INFO"
+scan_default_seconds = 5
+scan_max_seconds = 30
+max_connections = 8
+notification_buffer_size = 500
+
+# Characteristic UUIDs that skip the confirm=True requirement on ble_write.
+# Use with caution; UUIDs must be lowercase canonical form.
+write_allowlist = [
+    # "0000ffe1-0000-1000-8000-00805f9b34fb",
+]

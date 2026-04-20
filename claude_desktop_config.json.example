@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ble-explorer": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/ClawEar",
+        "run",
+        "python",
+        "-m",
+        "ble_explorer_mcp"
+      ]
+    }
+  }
+}
