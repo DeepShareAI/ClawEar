@@ -41,4 +41,25 @@ def build_server(manager: BLEManager) -> _Server:
 
     impls["ble_last_scan"] = ble_last_scan
 
+    @mcp.tool()
+    async def ble_connect(address: str, timeout_s: int = 10) -> dict:
+        """Connect to a peripheral by address. Returns service tree."""
+        return await manager.connect(address=address, timeout_s=timeout_s)
+
+    impls["ble_connect"] = ble_connect
+
+    @mcp.tool()
+    async def ble_disconnect(address: str) -> dict:
+        """Disconnect from a peripheral."""
+        return await manager.disconnect(address=address)
+
+    impls["ble_disconnect"] = ble_disconnect
+
+    @mcp.tool()
+    def ble_list_connections() -> list[dict]:
+        """List currently-connected peripherals."""
+        return manager.list_connections()
+
+    impls["ble_list_connections"] = ble_list_connections
+
     return _Server(mcp=mcp, tool_impls=impls)
