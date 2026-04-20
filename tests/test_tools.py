@@ -1,6 +1,6 @@
-from ble_explorer_mcp.config import Config
-from ble_explorer_mcp.manager import BLEManager
-from ble_explorer_mcp.server import build_server
+from ble_mcp.config import Config
+from ble_mcp.manager import BLEManager
+from ble_mcp.server import build_server
 
 
 def _mgr(scanner, client):
@@ -64,7 +64,7 @@ async def test_tool_ble_read(sample_client):
 
 async def test_tool_ble_write_requires_confirm(sample_client):
     import pytest
-    from ble_explorer_mcp.manager import WriteNotConfirmedError
+    from ble_mcp.manager import WriteNotConfirmedError
 
     mgr = _mgr(None, sample_client)
     server = build_server(mgr)

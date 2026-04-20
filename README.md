@@ -1,4 +1,4 @@
-# ble-explorer-mcp
+# ble-mcp
 
 A local macOS MCP server that exposes BLE scan / connect / read / write /
 subscribe as tools to Claude Desktop, backed by `bleak`.
@@ -23,7 +23,7 @@ the Claude Desktop process.
 
 ## Configure the server
 
-Copy `config.example.toml` to `~/.config/ble-explorer-mcp/config.toml` and
+Copy `config.example.toml` to `~/.config/ble-mcp/config.toml` and
 edit. Supported keys:
 
 | Key | Default | Meaning |
@@ -57,5 +57,5 @@ edit. Supported keys:
 
 ## Logs
 
-Rotating logs at `~/Library/Logs/ble-explorer-mcp/server.log` (5MB × 5 files).
+Rotating logs at `~/Library/Logs/ble-mcp/server.log` (5MB × 5 files).
 No characteristic payload bytes are logged — only address, UUID, and byte count.

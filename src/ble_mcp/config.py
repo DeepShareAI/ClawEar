@@ -1,4 +1,4 @@
-"""Configuration loader for ble-explorer-mcp."""
+"""Configuration loader for ble-mcp."""
 from __future__ import annotations
 
 import tomllib
@@ -15,7 +15,7 @@ class Config:
     notification_buffer_size: int = 500
 
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "ble-explorer-mcp" / "config.toml"
+DEFAULT_CONFIG_PATH = Path.home() / ".config" / "ble-mcp" / "config.toml"
 
 
 def load_config(path: Path | None = None) -> Config:

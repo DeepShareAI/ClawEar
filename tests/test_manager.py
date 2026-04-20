@@ -1,7 +1,7 @@
 import pytest
 
-from ble_explorer_mcp.config import Config
-from ble_explorer_mcp.manager import BLEManager, ScanInFlightError
+from ble_mcp.config import Config
+from ble_mcp.manager import BLEManager, ScanInFlightError
 
 
 async def test_scan_returns_devices(sample_scanner):
@@ -117,7 +117,7 @@ async def test_connect_twice_is_idempotent(sample_client):
 
 
 async def test_max_connections_enforced(sample_client):
-    from ble_explorer_mcp.manager import ConnectionLimitError
+    from ble_mcp.manager import ConnectionLimitError
 
     mgr = BLEManager(
         config=Config(max_connections=1),
@@ -169,7 +169,7 @@ async def test_read_returns_decoded(sample_client):
 
 
 async def test_read_raises_when_not_connected():
-    from ble_explorer_mcp.manager import NotConnectedError
+    from ble_mcp.manager import NotConnectedError
 
     mgr = BLEManager(
         config=Config(),
@@ -181,7 +181,7 @@ async def test_read_raises_when_not_connected():
 
 
 async def test_write_requires_confirm(sample_client):
-    from ble_explorer_mcp.manager import WriteNotConfirmedError
+    from ble_mcp.manager import WriteNotConfirmedError
 
     mgr = BLEManager(
         config=Config(),

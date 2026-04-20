@@ -10,7 +10,7 @@ from typing import Any, Callable
 from .config import Config
 from .decode import decode_bytes
 
-log = logging.getLogger("ble_explorer_mcp.manager")
+log = logging.getLogger("ble_mcp.manager")
 
 
 class ScanInFlightError(RuntimeError):

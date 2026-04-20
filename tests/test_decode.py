@@ -1,4 +1,4 @@
-from ble_explorer_mcp.decode import decode_bytes
+from ble_mcp.decode import decode_bytes
 
 
 def test_decode_empty():

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "ble-explorer": {
+    "ble-mcp": {
       "command": "uv",
       "args": [
         "--directory",
@@ -8,7 +8,7 @@
         "run",
         "python",
         "-m",
-        "ble_explorer_mcp"
+        "ble_mcp"
       ]
     }
   }

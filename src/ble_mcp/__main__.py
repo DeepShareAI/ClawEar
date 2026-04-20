@@ -10,7 +10,7 @@ from .server import build_server
 def main() -> None:
     config = load_config()
     log = configure_logging(config.log_level)
-    log.info("ble-explorer-mcp starting")
+    log.info("ble-mcp starting")
 
     manager = BLEManager(config=config)
     server = build_server(manager)
@@ -21,7 +21,7 @@ def main() -> None:
         # where we disconnect outstanding BLE clients.
         server.mcp.run()
     finally:
-        log.info("ble-explorer-mcp exiting")
+        log.info("ble-mcp exiting")
 
 
 if __name__ == "__main__":

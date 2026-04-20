@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .manager import BLEManager
 
-log = logging.getLogger("ble_explorer_mcp.server")
+log = logging.getLogger("ble_mcp.server")
 
 
 class _Server:
@@ -33,7 +33,7 @@ def build_server(manager: BLEManager) -> _Server:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("shutdown: disconnect %s failed: %s", addr, exc)
 
-    mcp = FastMCP("ble-explorer", lifespan=_lifespan)
+    mcp = FastMCP("ble-mcp", lifespan=_lifespan)
     impls: dict[str, Any] = {}
 
     @mcp.tool()

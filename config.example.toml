@@ -1,4 +1,4 @@
-# Copy to ~/.config/ble-explorer-mcp/config.toml and edit.
+# Copy to ~/.config/ble-mcp/config.toml and edit.
 
 log_level = "INFO"
 scan_max_seconds = 30

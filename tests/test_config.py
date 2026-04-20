@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ble_explorer_mcp.config import Config, load_config
+from ble_mcp.config import Config, load_config
 
 
 def test_defaults_when_file_missing(tmp_path: Path):

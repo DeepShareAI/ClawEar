@@ -1,11 +1,11 @@
-"""Rotating file logging for ble-explorer-mcp."""
+"""Rotating file logging for ble-mcp."""
 from __future__ import annotations
 
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOG_DIR = Path.home() / "Library" / "Logs" / "ble-explorer-mcp"
+LOG_DIR = Path.home() / "Library" / "Logs" / "ble-mcp"
 LOG_FILE = LOG_DIR / "server.log"
 
 
@@ -21,7 +21,7 @@ def configure_logging(level: str = "INFO") -> logging.Logger:
     handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
-    logger = logging.getLogger("ble_explorer_mcp")
+    logger = logging.getLogger("ble_mcp")
     logger.setLevel(level.upper())
     # Idempotent: clear existing handlers so re-configuration doesn't duplicate.
     logger.handlers.clear()
