@@ -23,6 +23,10 @@ class NotConnectedError(RuntimeError):
     """No active connection for the given address."""
 
 
+class WriteNotConfirmedError(RuntimeError):
+    """Write attempted without confirm=True on a non-allowlisted characteristic."""
+
+
 class BLEManager:
     def __init__(
         self,
@@ -133,6 +137,28 @@ class BLEManager:
             address, characteristic_uuid, len(raw),
         )
         return decode_bytes(bytes(raw))
+
+    async def write(
+        self,
+        address: str,
+        characteristic_uuid: str,
+        data_hex: str,
+        response: bool = True,
+        confirm: bool = False,
+    ) -> dict:
+        client = self._require_client(address)
+        uuid_lower = characteristic_uuid.lower()
+        if not confirm and uuid_lower not in self._config.write_allowlist:
+            raise WriteNotConfirmedError(
+                f"Write to {characteristic_uuid} requires confirm=True or allowlist entry."
+            )
+        data = bytes.fromhex(data_hex)
+        await client.write_gatt_char(characteristic_uuid, data, response=response)
+        log.info(
+            "write address=%s char=%s bytes=%d response=%s",
+            address, characteristic_uuid, len(data), response,
+        )
+        return {"bytes_written": len(data)}
 
 
 def _build_service_tree(address: str, services) -> dict:

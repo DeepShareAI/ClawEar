@@ -174,3 +174,60 @@ async def test_read_raises_when_not_connected():
     )
     with pytest.raises(NotConnectedError):
         await mgr.read("AA:BB:CC:DD:EE:01", "00002a38-0000-1000-8000-00805f9b34fb")
+
+
+async def test_write_requires_confirm(sample_client):
+    from ble_explorer_mcp.manager import WriteNotConfirmedError
+
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    with pytest.raises(WriteNotConfirmedError):
+        await mgr.write(
+            "AA:BB:CC:DD:EE:01",
+            "00002a38-0000-1000-8000-00805f9b34fb",
+            "01",
+            response=True,
+            confirm=False,
+        )
+
+
+async def test_write_with_confirm_succeeds(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    r = await mgr.write(
+        "AA:BB:CC:DD:EE:01",
+        "00002a38-0000-1000-8000-00805f9b34fb",
+        "deadbeef",
+        response=True,
+        confirm=True,
+    )
+    assert r["bytes_written"] == 4
+    assert sample_client.written[-1][1] == b"\xde\xad\xbe\xef"
+
+
+async def test_write_allowlist_bypasses_confirm(sample_client):
+    cfg = Config(
+        write_allowlist=["00002a38-0000-1000-8000-00805f9b34fb"]
+    )
+    mgr = BLEManager(
+        config=cfg,
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    r = await mgr.write(
+        "AA:BB:CC:DD:EE:01",
+        "00002a38-0000-1000-8000-00805f9b34fb",
+        "aa",
+        response=False,
+        confirm=False,
+    )
+    assert r["bytes_written"] == 1
