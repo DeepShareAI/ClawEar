@@ -14,6 +14,14 @@ class ScanInFlightError(RuntimeError):
     """A scan is already running; wait for it to finish."""
 
 
+class ConnectionLimitError(RuntimeError):
+    """Attempted to exceed max_connections."""
+
+
+class NotConnectedError(RuntimeError):
+    """No active connection for the given address."""
+
+
 class BLEManager:
     def __init__(
         self,
@@ -70,6 +78,66 @@ class BLEManager:
 
     def last_scan(self) -> list[dict]:
         return list(self._last_scan)
+
+    async def connect(self, address: str, timeout_s: int = 10) -> dict:
+        if not hasattr(self, "_clients"):
+            self._clients: dict[str, Any] = {}
+            self._service_trees: dict[str, dict] = {}
+        if address in self._clients:
+            return self._service_trees[address]
+        if len(self._clients) >= self._config.max_connections:
+            raise ConnectionLimitError(
+                f"max_connections ({self._config.max_connections}) reached"
+            )
+        client = self._client_factory(address)
+        await client.connect(timeout=timeout_s)
+        tree = _build_service_tree(address, client.services)
+        self._clients[address] = client
+        self._service_trees[address] = tree
+        log.info("connect address=%s services=%d", address, len(tree["services"]))
+        return tree
+
+    async def disconnect(self, address: str) -> dict:
+        clients = getattr(self, "_clients", {})
+        if address not in clients:
+            raise NotConnectedError(address)
+        client = clients.pop(address)
+        getattr(self, "_service_trees", {}).pop(address, None)
+        await client.disconnect()
+        log.info("disconnect address=%s", address)
+        return {"address": address, "disconnected": True}
+
+    def list_connections(self) -> list[dict]:
+        trees = getattr(self, "_service_trees", {})
+        return [
+            {
+                "address": addr,
+                "name": None,
+                "services_count": len(tree["services"]),
+            }
+            for addr, tree in trees.items()
+        ]
+
+    def _require_client(self, address: str):
+        clients = getattr(self, "_clients", {})
+        if address not in clients:
+            raise NotConnectedError(address)
+        return clients[address]
+
+
+def _build_service_tree(address: str, services) -> dict:
+    out_services = []
+    for svc in services:
+        out_services.append(
+            {
+                "uuid": svc.uuid,
+                "characteristics": [
+                    {"uuid": ch.uuid, "properties": list(ch.properties)}
+                    for ch in svc.characteristics
+                ],
+            }
+        )
+    return {"address": address, "services": out_services}
 
 
 def _default_scanner_factory():

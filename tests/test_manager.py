@@ -84,3 +84,66 @@ async def test_concurrent_scan_raises(sample_scanner):
     with pytest.raises(ScanInFlightError):
         await mgr.scan(duration_s=1)
     await t1
+
+
+async def test_connect_returns_service_tree(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    tree = await mgr.connect("AA:BB:CC:DD:EE:01")
+    assert tree["address"] == "AA:BB:CC:DD:EE:01"
+    assert len(tree["services"]) == 1
+    assert len(tree["services"][0]["characteristics"]) == 2
+    chars = {c["uuid"] for c in tree["services"][0]["characteristics"]}
+    assert "00002a37-0000-1000-8000-00805f9b34fb" in chars
+
+
+async def test_connect_twice_is_idempotent(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    # Second connect returns the cached tree, does not reconnect.
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    assert len(mgr.list_connections()) == 1
+
+
+async def test_max_connections_enforced(sample_client):
+    from ble_explorer_mcp.manager import ConnectionLimitError
+
+    mgr = BLEManager(
+        config=Config(max_connections=1),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    with pytest.raises(ConnectionLimitError):
+        await mgr.connect("AA:BB:CC:DD:EE:99")
+
+
+async def test_disconnect(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    result = await mgr.disconnect("AA:BB:CC:DD:EE:01")
+    assert result["disconnected"] is True
+    assert mgr.list_connections() == []
+
+
+async def test_list_connections_shape(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    infos = mgr.list_connections()
+    assert infos[0]["address"] == "AA:BB:CC:DD:EE:01"
+    assert infos[0]["services_count"] == 1
