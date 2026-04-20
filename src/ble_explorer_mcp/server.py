@@ -62,4 +62,32 @@ def build_server(manager: BLEManager) -> _Server:
 
     impls["ble_list_connections"] = ble_list_connections
 
+    @mcp.tool()
+    async def ble_read(address: str, characteristic_uuid: str) -> dict:
+        """Read a characteristic. Returns hex + best-effort utf8/int-le decodings."""
+        return await manager.read(
+            address=address, characteristic_uuid=characteristic_uuid
+        )
+
+    impls["ble_read"] = ble_read
+
+    @mcp.tool()
+    async def ble_write(
+        address: str,
+        characteristic_uuid: str,
+        data_hex: str,
+        response: bool = True,
+        confirm: bool = False,
+    ) -> dict:
+        """Write bytes (hex) to a characteristic. Requires confirm=True unless allow-listed."""
+        return await manager.write(
+            address=address,
+            characteristic_uuid=characteristic_uuid,
+            data_hex=data_hex,
+            response=response,
+            confirm=confirm,
+        )
+
+    impls["ble_write"] = ble_write
+
     return _Server(mcp=mcp, tool_impls=impls)
