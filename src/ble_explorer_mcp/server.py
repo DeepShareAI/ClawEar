@@ -1,12 +1,16 @@
 """MCP tool surface. Thin wrappers around BLEManager."""
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from .manager import BLEManager
+
+log = logging.getLogger("ble_explorer_mcp.server")
 
 
 class _Server:
@@ -18,7 +22,18 @@ class _Server:
 
 
 def build_server(manager: BLEManager) -> _Server:
-    mcp = FastMCP("ble-explorer")
+    @asynccontextmanager
+    async def _lifespan(_server: FastMCP):
+        try:
+            yield {}
+        finally:
+            for addr in list(manager._clients.keys()):
+                try:
+                    await manager.disconnect(addr)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("shutdown: disconnect %s failed: %s", addr, exc)
+
+    mcp = FastMCP("ble-explorer", lifespan=_lifespan)
     impls: dict[str, Any] = {}
 
     @mcp.tool()

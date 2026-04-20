@@ -24,15 +24,27 @@ class FakeBLEDevice:
 
 
 class FakeBleakScanner:
-    """Mimics bleak.BleakScanner.discover(return_adv=True)."""
+    """Mimics bleak.BleakScanner.discover(return_adv=True).
 
-    def __init__(self, devices: list[tuple[FakeBLEDevice, FakeAdvertisementData]]):
+    Holds the task for `delay_s` so concurrent-scan tests can observe
+    in-flight state reliably; default is 0 (single yield).
+    """
+
+    def __init__(
+        self,
+        devices: list[tuple[FakeBLEDevice, FakeAdvertisementData]],
+        delay_s: float = 0.0,
+    ):
         self._devices = devices
+        self._delay_s = delay_s
 
     async def discover(
         self, timeout: float = 5.0, return_adv: bool = True
     ) -> dict[str, tuple[FakeBLEDevice, FakeAdvertisementData]]:
-        await asyncio.sleep(0)
+        if self._delay_s:
+            await asyncio.sleep(self._delay_s)
+        else:
+            await asyncio.sleep(0)
         return {dev.address: (dev, adv) for dev, adv in self._devices}
 
 

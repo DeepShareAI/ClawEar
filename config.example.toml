@@ -1,7 +1,6 @@
 # Copy to ~/.config/ble-explorer-mcp/config.toml and edit.
 
 log_level = "INFO"
-scan_default_seconds = 5
 scan_max_seconds = 30
 max_connections = 8
 notification_buffer_size = 500

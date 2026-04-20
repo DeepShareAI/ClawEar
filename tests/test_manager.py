@@ -70,17 +70,21 @@ async def test_last_scan_empty_before_any_scan():
     assert mgr.last_scan() == []
 
 
-async def test_concurrent_scan_raises(sample_scanner):
+async def test_concurrent_scan_raises():
     import asyncio
 
+    from .fake_bleak import FakeBleakScanner
+
+    # Slow scanner so the second scan observes in-flight state deterministically.
+    slow_scanner = FakeBleakScanner(devices=[], delay_s=0.05)
     mgr = BLEManager(
         config=Config(),
-        scanner_factory=lambda: sample_scanner,
+        scanner_factory=lambda: slow_scanner,
         client_factory=lambda address: None,
     )
     t1 = asyncio.create_task(mgr.scan(duration_s=1))
-    # Give t1 a chance to enter the critical section.
-    await asyncio.sleep(0)
+    # Yield so t1 enters the critical section.
+    await asyncio.sleep(0.01)
     with pytest.raises(ScanInFlightError):
         await mgr.scan(duration_s=1)
     await t1
@@ -231,6 +235,22 @@ async def test_write_allowlist_bypasses_confirm(sample_client):
         confirm=False,
     )
     assert r["bytes_written"] == 1
+
+
+async def test_write_rejects_malformed_hex(sample_client):
+    mgr = BLEManager(
+        config=Config(),
+        scanner_factory=lambda: None,
+        client_factory=lambda address: sample_client,
+    )
+    await mgr.connect("AA:BB:CC:DD:EE:01")
+    with pytest.raises(ValueError, match="data_hex must be a valid hex string"):
+        await mgr.write(
+            "AA:BB:CC:DD:EE:01",
+            "00002a38-0000-1000-8000-00805f9b34fb",
+            "zz",
+            confirm=True,
+        )
 
 
 async def test_subscribe_captures_notifications(sample_client):

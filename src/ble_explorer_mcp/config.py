@@ -10,7 +10,6 @@ from pathlib import Path
 class Config:
     write_allowlist: list[str] = field(default_factory=list)
     log_level: str = "INFO"
-    scan_default_seconds: int = 5
     scan_max_seconds: int = 30
     max_connections: int = 8
     notification_buffer_size: int = 500
@@ -29,7 +28,6 @@ def load_config(path: Path | None = None) -> Config:
     return Config(
         write_allowlist=allowlist,
         log_level=raw.get("log_level", "INFO"),
-        scan_default_seconds=raw.get("scan_default_seconds", 5),
         scan_max_seconds=raw.get("scan_max_seconds", 30),
         max_connections=raw.get("max_connections", 8),
         notification_buffer_size=raw.get("notification_buffer_size", 500),

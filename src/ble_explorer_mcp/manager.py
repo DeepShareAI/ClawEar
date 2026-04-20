@@ -41,6 +41,11 @@ class BLEManager:
         self._client_factory = client_factory or _default_client_factory
         self._scan_lock = asyncio.Lock()
         self._last_scan: list[dict] = []
+        self._clients: dict[str, Any] = {}
+        self._service_trees: dict[str, dict] = {}
+        # Bleak delivers notifications from CoreBluetooth's dispatch queue
+        # (a background thread on macOS). deque.append is atomic under CPython's
+        # GIL, which is the only writer we rely on; no lock needed today.
         self._notifications: deque = deque(
             maxlen=self._config.notification_buffer_size
         )
@@ -90,9 +95,6 @@ class BLEManager:
         return list(self._last_scan)
 
     async def connect(self, address: str, timeout_s: int = 10) -> dict:
-        if not hasattr(self, "_clients"):
-            self._clients: dict[str, Any] = {}
-            self._service_trees: dict[str, dict] = {}
         if address in self._clients:
             return self._service_trees[address]
         if len(self._clients) >= self._config.max_connections:
@@ -108,31 +110,28 @@ class BLEManager:
         return tree
 
     async def disconnect(self, address: str) -> dict:
-        clients = getattr(self, "_clients", {})
-        if address not in clients:
+        if address not in self._clients:
             raise NotConnectedError(address)
-        client = clients.pop(address)
-        getattr(self, "_service_trees", {}).pop(address, None)
+        client = self._clients.pop(address)
+        self._service_trees.pop(address, None)
         await client.disconnect()
         log.info("disconnect address=%s", address)
         return {"address": address, "disconnected": True}
 
     def list_connections(self) -> list[dict]:
-        trees = getattr(self, "_service_trees", {})
         return [
             {
                 "address": addr,
                 "name": None,
                 "services_count": len(tree["services"]),
             }
-            for addr, tree in trees.items()
+            for addr, tree in self._service_trees.items()
         ]
 
     def _require_client(self, address: str):
-        clients = getattr(self, "_clients", {})
-        if address not in clients:
+        if address not in self._clients:
             raise NotConnectedError(address)
-        return clients[address]
+        return self._clients[address]
 
     async def read(self, address: str, characteristic_uuid: str) -> dict:
         client = self._require_client(address)
@@ -157,7 +156,12 @@ class BLEManager:
             raise WriteNotConfirmedError(
                 f"Write to {characteristic_uuid} requires confirm=True or allowlist entry."
             )
-        data = bytes.fromhex(data_hex)
+        try:
+            data = bytes.fromhex(data_hex)
+        except ValueError as exc:
+            raise ValueError(
+                f"data_hex must be a valid hex string (even length, 0-9a-f only): {exc}"
+            ) from exc
         await client.write_gatt_char(characteristic_uuid, data, response=response)
         log.info(
             "write address=%s char=%s bytes=%d response=%s",
@@ -169,6 +173,8 @@ class BLEManager:
         client = self._require_client(address)
 
         def _callback(_handle: int, data: bytearray) -> None:
+            # Invoked from bleak's CoreBluetooth dispatch thread on macOS.
+            # Keep this body append-only — see _notifications init for rationale.
             self._notifications.append(
                 {
                     "address": address,

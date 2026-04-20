@@ -8,7 +8,6 @@ def test_defaults_when_file_missing(tmp_path: Path):
     assert cfg == Config(
         write_allowlist=[],
         log_level="INFO",
-        scan_default_seconds=5,
         scan_max_seconds=30,
         max_connections=8,
         notification_buffer_size=500,
@@ -20,13 +19,13 @@ def test_loads_toml(tmp_path: Path):
     p.write_text(
         """
 log_level = "DEBUG"
-scan_default_seconds = 10
+scan_max_seconds = 10
 write_allowlist = ["0000ffe1-0000-1000-8000-00805f9b34fb"]
 """
     )
     cfg = load_config(p)
     assert cfg.log_level == "DEBUG"
-    assert cfg.scan_default_seconds == 10
+    assert cfg.scan_max_seconds == 10
     assert cfg.write_allowlist == ["0000ffe1-0000-1000-8000-00805f9b34fb"]
     # Unspecified fields keep defaults.
     assert cfg.max_connections == 8
