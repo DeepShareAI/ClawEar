@@ -123,8 +123,9 @@ export OPENAI_API_KEY="sk-..."
          ~/Documents/knowledge-base/clawear/*.md \
          ~/ClawEar/events/*.jsonl
   ```
-7. Open the latest `.md` in an editor; confirm the transcript and any
-  `> note:` lines.
+7. Open the latest `.md` in an editor; confirm the transcript contains
+   `**User:**` turns and no `**Assistant:**` turns. If the session hit an
+   API error mid-stream, it will appear as a `> note: api error: <code>` line.
 8. In Claude Desktop, ask JavisContext to `search_documents` for a phrase
   you spoke; confirm the MD is found.
 

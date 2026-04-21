@@ -9,7 +9,8 @@ transcripts_dir = "~/Documents/knowledge-base/clawear"
 recordings_dir  = "~/ClawEar/recordings"
 events_dir      = "~/ClawEar/events"
 
-# OpenAI transcription model. Options:
+# OpenAI transcription settings.
+# Model options:
 #   "gpt-4o-transcribe"       - most accurate (default)
 #   "gpt-4o-mini-transcribe"  - good accuracy, cheaper
 #   "whisper-1"               - legacy, cheapest
@@ -17,5 +18,5 @@ transcription_model = "gpt-4o-transcribe"
 
 # Audio / streaming tuning.
 queue_max_blocks = 1000         # ~20s of 20ms blocks before drop-oldest kicks in
-realtime_sample_rate = 24000    # OpenAI Realtime fixed requirement
+realtime_sample_rate = 24000    # PCM16 input rate expected by the OpenAI transcription session
 ws_reconnect = false            # out of scope; crash-and-report on drop
