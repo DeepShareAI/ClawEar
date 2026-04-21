@@ -76,7 +76,7 @@ class RealtimeClient:
             while True:
                 raw = await self._ws.recv()
                 yield json.loads(raw)
-        except (ConnectionError, OSError) as exc:
+        except Exception as exc:  # websockets raises ConnectionClosed*, not OSError
             log.info("realtime ws closed: %s", exc)
             return
 
