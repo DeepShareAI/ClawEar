@@ -9,7 +9,6 @@ import asyncio
 import logging
 import signal
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .capture import Capture, DeviceNotFoundError, _default_input_stream_factory, _default_query_fn, _default_default_index
