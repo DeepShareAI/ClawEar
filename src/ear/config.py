@@ -5,13 +5,6 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_INSTRUCTIONS = (
-    "You are an audio observer. Transcribe the speaker's words faithfully.\n"
-    "When a clear topic shift, action item, decision, or named entity appears,\n"
-    'add a short inline note on its own line prefixed with "> note:".\n'
-    "Do not respond conversationally; do not add commentary beyond such notes.\n"
-)
-
 
 @dataclass(frozen=True)
 class Config:
@@ -25,8 +18,7 @@ class Config:
     events_dir: Path = field(
         default_factory=lambda: Path.home() / "ClawEar" / "events"
     )
-    openai_model: str = "gpt-4o-realtime-preview"
-    instructions: str = DEFAULT_INSTRUCTIONS
+    transcription_model: str = "gpt-4o-transcribe"
     queue_max_blocks: int = 1000
     realtime_sample_rate: int = 24000
     ws_reconnect: bool = False
@@ -59,8 +51,9 @@ def load_config(path: Path | None = None) -> Config:
             if "events_dir" in raw
             else defaults.events_dir
         ),
-        openai_model=raw.get("openai_model", defaults.openai_model),
-        instructions=raw.get("instructions", defaults.instructions),
+        transcription_model=raw.get(
+            "transcription_model", defaults.transcription_model
+        ),
         queue_max_blocks=int(raw.get("queue_max_blocks", defaults.queue_max_blocks)),
         realtime_sample_rate=int(
             raw.get("realtime_sample_rate", defaults.realtime_sample_rate)
