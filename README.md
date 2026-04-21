@@ -133,6 +133,14 @@ export OPENAI_API_KEY="sk-..."
 
 Pair your Javis device with macOS (Bluetooth, USB, or whatever transport it uses) so it appears in System Settings → Sound as an input and output device.
 
+> **Before the first run — set macOS output back to built-in speakers.**
+>
+> macOS often auto-switches the **system default output** to a newly-connected Bluetooth audio device (AirPods, Javis, etc.). When that happens, Chrome / Atlas / Spotify / any app that follows "System Default" will also play through Javis — not what this feature is meant to do. ClawEar never mutates the system default, so the fix is a one-time manual step:
+>
+> **System Settings → Sound → Output → pick "MacBook Pro Speakers"** (or whatever your built-in output is called).
+>
+> After that, other apps stay on built-in while ClawEar opens Javis explicitly for its recording + beeps. macOS typically remembers this choice for the device combination, so you usually only do it once per Javis pairing. If you ever notice Chrome playing through Javis again, re-check this setting — it means macOS auto-switched back on the latest reconnect.
+
 1. Confirm Javis is enumerated: `clawear list-devices` — expect to see an entry whose name contains "Javis".
 2. Run `clawear` with **no** `--device` flag. You should hear a short 700 Hz beep (120 ms, higher pitch = "start") from the Javis speaker. The terminal prints `Recording from: Javis … @ <rate> Hz`.
 3. While recording, open Slack / WhatsApp / Zoom / any other audio app and start a call. It should use the MacBook's built-in mic + speaker — unaffected by ClawEar. ClawEar keeps recording through Javis.
