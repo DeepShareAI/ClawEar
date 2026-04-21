@@ -359,9 +359,7 @@ async def run(
         evlog.close()
         await client_obj.close()
 
-        if capture_error_reason is not None:
-            player.beep_error()
-        elif ws_errored:
+        if capture_error_reason is not None or ws_errored:
             player.beep_error()
         else:
             player.beep_stop()

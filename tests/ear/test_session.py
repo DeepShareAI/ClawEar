@@ -230,8 +230,11 @@ async def test_beep_lifecycle_ws_error(tmp_path: Path):
         ws_reconnect=False,
     )
     pcm_blocks = [_silence(320) for _ in range(5)]
-    # Empty ws_script — the drive_audio helper calls ws.push_close() after the
-    # (empty) event loop, so the consumer exits before shutdown_event is set.
+    # WS-error path mechanism: drive_audio() inside _drive_session pushes all
+    # PCM blocks, then calls ws.push_close() immediately after the (empty)
+    # event-script loop. This closes the fake WS with no completion events,
+    # causing the event_consumer task to exit before shutdown_event fires,
+    # which session.py interprets as ws_errored = True (exit 3).
     ws_script: list[dict] = []
     rc, _ws, player = await _drive_session(cfg, pcm_blocks, ws_script, sigint_after_blocks=None)
     assert rc == 3  # ws error path
@@ -399,3 +402,75 @@ async def test_beep_lifecycle_fatal_exception(tmp_path: Path):
     # invariants that hold universally are only (beep_error in calls) and
     # (close in calls) and (beep_stop NOT in calls).
     assert player.calls.index("beep_start") < player.calls.index("beep_error")
+
+
+@pytest.mark.asyncio
+async def test_null_beep_player_when_output_resolve_fails(tmp_path: Path):
+    """If output-device resolution raises, session falls through to _NullBeepPlayer
+    and continues normally (no session abort, no beeps)."""
+    cfg = Config(
+        log_level="INFO",
+        transcripts_dir=tmp_path / "transcripts",
+        recordings_dir=tmp_path / "recordings",
+        events_dir=tmp_path / "events",
+        transcription_model="gpt-4o-transcribe",
+        queue_max_blocks=100,
+        realtime_sample_rate=24000,
+        ws_reconnect=False,
+    )
+
+    # Inject a default_output_index callable that returns -1, forcing
+    # resolve_output_device to raise OutputDeviceNotFoundError.
+    def broken_default_output_index() -> int:
+        return -1
+
+    # The beep_player_factory should NEVER be called in this path — the
+    # OutputDeviceNotFoundError is caught BEFORE beep_player_factory runs.
+    factory_call_count = [0]
+
+    def beep_player_factory(device: dict):
+        factory_call_count[0] += 1
+        return FakeBeepPlayer()  # unreachable, but provides a valid type
+
+    ws = FakeRealtimeWS()
+    captured_stream: list = []
+
+    def input_stream_factory(**kwargs):
+        s = InputStream(**kwargs)
+        captured_stream.append(s)
+        return s
+
+    async def ws_factory(url: str, extra_headers: dict[str, str]) -> FakeRealtimeWS:
+        return ws
+
+    async def drive_audio() -> None:
+        await asyncio.sleep(0.05)
+        for _ in range(3):
+            captured_stream[0].push_block(_silence(320))
+            await asyncio.sleep(0)
+        from ear import session as sess_mod
+        if sess_mod._test_shutdown_event is not None:
+            sess_mod._test_shutdown_event.set()
+        await ws.push_close()
+
+    drive = asyncio.create_task(drive_audio())
+
+    rc = await run(
+        config=cfg,
+        api_key="sk-test",
+        device_spec=None,
+        dry_run=False,
+        input_stream_factory=input_stream_factory,
+        ws_factory=ws_factory,
+        query_fn=query_devices,
+        default_index=_fake_default_index,
+        default_output_index=broken_default_output_index,
+        beep_player_factory=beep_player_factory,
+    )
+    await drive
+
+    # Session completed normally despite the output-resolve failure.
+    assert rc == 0
+    # beep_player_factory was never called — the resolver raised first and
+    # the except branch assigned _NullBeepPlayer directly.
+    assert factory_call_count[0] == 0
