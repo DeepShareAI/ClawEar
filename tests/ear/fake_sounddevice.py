@@ -1,4 +1,4 @@
-"""In-memory fake of the sounddevice API subset used by ear.capture."""
+"""In-memory fake of the sounddevice API subset used by ear.capture and ear.output."""
 from __future__ import annotations
 
 import numpy as np
@@ -11,17 +11,24 @@ class FakeDeviceInfo:
     name: str
     max_input_channels: int
     default_samplerate: float
+    max_output_channels: int = 0
 
 
 # Module-level state that tests manipulate.
 _devices: list[FakeDeviceInfo] = []
 _default_input_index: int = -1
+_default_output_index: int = -1
 
 
-def set_devices(devices: list[FakeDeviceInfo], default_input: int = 0) -> None:
-    global _devices, _default_input_index
+def set_devices(
+    devices: list[FakeDeviceInfo],
+    default_input: int = 0,
+    default_output: int = -1,
+) -> None:
+    global _devices, _default_input_index, _default_output_index
     _devices = list(devices)
     _default_input_index = default_input
+    _default_output_index = default_output
 
 
 def query_devices() -> list[dict]:
@@ -30,16 +37,18 @@ def query_devices() -> list[dict]:
         {
             "name": d.name,
             "max_input_channels": d.max_input_channels,
+            "max_output_channels": d.max_output_channels,
             "default_samplerate": d.default_samplerate,
+            "index": i,
         }
-        for d in _devices
+        for i, d in enumerate(_devices)
     ]
 
 
 class _Default:
     @property
     def device(self) -> tuple[int, int]:
-        return (_default_input_index, -1)
+        return (_default_input_index, _default_output_index)
 
 
 default = _Default()
@@ -89,6 +98,40 @@ class FakeInputStream:
             raise RuntimeError("stream not started")
         empty = np.zeros((0, self.channels), dtype=np.int16)
         self.callback(empty, 0, None, status)
+
+
+@dataclass
+class FakeOutputStream:
+    samplerate: int
+    channels: int
+    dtype: str
+    device: int | str | None = None
+    blocksize: int | None = None
+    _started: bool = False
+    _closed: bool = False
+    written: list[np.ndarray] = field(default_factory=list)
+    raise_on_write: Exception | None = None
+    raise_on_close: Exception | None = None
+    raise_on_start: Exception | None = None
+
+    def start(self) -> None:
+        if self.raise_on_start is not None:
+            raise self.raise_on_start
+        self._started = True
+
+    def stop(self) -> None:
+        self._started = False
+
+    def close(self) -> None:
+        if self.raise_on_close is not None:
+            raise self.raise_on_close
+        self._closed = True
+
+    def write(self, data) -> None:
+        if self.raise_on_write is not None:
+            raise self.raise_on_write
+        # copy so tests see the buffer exactly as written even if caller reuses the array
+        self.written.append(np.asarray(data).copy())
 
 
 class _FakeStatus:

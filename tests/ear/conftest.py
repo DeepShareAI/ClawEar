@@ -14,13 +14,22 @@ def _default_fake_devices():
             FakeDeviceInfo(
                 name="Built-in Microphone",
                 max_input_channels=1,
+                max_output_channels=0,
+                default_samplerate=48000.0,
+            ),
+            FakeDeviceInfo(
+                name="Built-in Output",
+                max_input_channels=0,
+                max_output_channels=2,
                 default_samplerate=48000.0,
             ),
             FakeDeviceInfo(
                 name="AirPods Pro",
                 max_input_channels=1,
+                max_output_channels=2,
                 default_samplerate=16000.0,
             ),
         ],
-        default_input=1,  # AirPods is the default.
+        default_input=2,   # AirPods
+        default_output=1,  # Built-in Output
     )

@@ -53,7 +53,7 @@ async def test_callback_enqueues_blocks_on_asyncio_queue():
         queue_max_blocks=100,
         input_stream_factory=InputStream,
         query_fn=query_devices,
-        default_index=1,
+        default_index=2,
     )
     cap.start()
     # Drive the fake: push a block; the fake invokes the callback synchronously
@@ -73,7 +73,7 @@ async def test_drop_oldest_on_queue_full():
         queue_max_blocks=2,  # tiny queue
         input_stream_factory=InputStream,
         query_fn=query_devices,
-        default_index=1,
+        default_index=2,
     )
     cap.start()
     cap._stream.push_block(_silence(1))  # block "1"
@@ -109,7 +109,7 @@ async def test_fatal_status_sets_error_future():
         queue_max_blocks=100,
         input_stream_factory=InputStream,
         query_fn=query_devices,
-        default_index=1,
+        default_index=2,
     )
     cap.start()
     assert cap.error is not None
@@ -131,7 +131,7 @@ async def test_recoverable_status_does_not_trip_error():
         queue_max_blocks=100,
         input_stream_factory=InputStream,
         query_fn=query_devices,
-        default_index=1,
+        default_index=2,
     )
     cap.start()
     assert cap.error is not None
