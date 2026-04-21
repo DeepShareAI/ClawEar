@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from ear.capture import Capture, DeviceNotFoundError, resolve_device
+from ear.capture import Capture, DeviceNotFoundError, _PREFERRED_DEVICE_SUBSTR, resolve_device
 from .fake_sounddevice import FakeDeviceInfo, InputStream, query_devices, default
 
 
@@ -21,6 +21,8 @@ def test_list_devices_returns_input_only():
 
 
 def test_resolve_device_default_returns_default_input():
+    # Neither device name contains _PREFERRED_DEVICE_SUBSTR, so the javis
+    # preference branch is skipped and we exercise the fallback-to-default path.
     devices = [
         {"name": "Built-in Microphone", "max_input_channels": 1, "default_samplerate": 48000.0},
         {"name": "AirPods Pro", "max_input_channels": 1, "default_samplerate": 16000.0},
@@ -140,9 +142,6 @@ async def test_recoverable_status_does_not_trip_error():
     await asyncio.sleep(0)
     assert not cap.error.done()
     cap.stop()
-
-
-from ear.capture import _PREFERRED_DEVICE_SUBSTR  # noqa: F401 — used in assertions below
 
 
 def test_resolve_prefers_javis_when_spec_is_none():
