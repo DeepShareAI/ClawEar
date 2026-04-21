@@ -129,6 +129,18 @@ export OPENAI_API_KEY="sk-..."
 8. In Claude Desktop, ask JavisContext to `search_documents` for a phrase
   you spoke; confirm the MD is found.
 
+### Smoke test with Javis
+
+Pair your Javis device with macOS (Bluetooth, USB, or whatever transport it uses) so it appears in System Settings → Sound as an input and output device.
+
+1. Confirm Javis is enumerated: `clawear list-devices` — expect to see an entry whose name contains "Javis".
+2. Run `clawear` with **no** `--device` flag. You should hear a short 700 Hz beep (120 ms) from the Javis speaker. The terminal prints `Recording from: Javis … @ <rate> Hz`.
+3. While recording, open Slack / WhatsApp / Zoom / any other audio app and start a call. It should use the MacBook's built-in mic + speaker — unaffected by ClawEar. ClawEar keeps recording through Javis.
+4. Ctrl+C. Expect a short 500 Hz beep (120 ms) from the Javis speaker, then the usual `wav:` / `md:` / `log:` paths.
+5. Unpair Javis and re-run `clawear`. Silent fallback to built-in: recording and beeps play through MacBook speakers with no stderr warning.
+
+Expected: all other apps on the machine continue using whatever audio device they were already bound to. ClawEar never mutates the macOS system default.
+
 ## Logs
 
 Rotating logs at `~/Library/Logs/clawear/clawear.log` (5MB × 5 files).
