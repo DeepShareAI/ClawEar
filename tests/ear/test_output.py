@@ -289,8 +289,10 @@ def test_stop_failure_during_close_is_swallowed(caplog):
         return s
 
     player = BeepPlayer(_make_device(), output_stream_factory=factory)
-    # Inject the stop failure post-construction (so the stream opens cleanly,
-    # then stop raises during close).
+    # Inject post-construction: we need the stream to open cleanly (so beep_start
+    # could run successfully), then have stop() raise during close(). Accessing
+    # player._stream directly is the cleanest way to reach the FakeOutputStream
+    # without a separate post-construction hook on BeepPlayer.
     player._stream.raise_on_stop = RuntimeError("bluetooth gone at stop")
     with caplog.at_level("WARNING", logger="ear.output"):
         player.close()  # Must NOT raise.

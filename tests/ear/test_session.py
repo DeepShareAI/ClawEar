@@ -22,6 +22,10 @@ def _fake_default_index() -> int:
     return sd_default.device[0]
 
 
+def _fake_default_output_index() -> int:
+    return sd_default.device[1]
+
+
 @dataclass
 class FakeBeepPlayer:
     calls: list[str] = field(default_factory=list)
@@ -87,6 +91,7 @@ async def _drive_session(
         ws_factory=ws_factory,
         query_fn=query_devices,
         default_index=_fake_default_index,
+        default_output_index=_fake_default_output_index,
         beep_player_factory=beep_player_factory,
     )
     await drive
@@ -268,6 +273,7 @@ async def test_beep_not_fired_on_preflight_failure(tmp_path: Path):
         ws_factory=ws_factory,
         query_fn=query_devices,
         default_index=_fake_default_index,
+        default_output_index=_fake_default_output_index,
         beep_player_factory=beep_player_factory,
     )
     assert rc == 1
@@ -322,6 +328,7 @@ async def test_beep_lifecycle_capture_error(tmp_path: Path):
         ws_factory=ws_factory,
         query_fn=query_devices,
         default_index=_fake_default_index,
+        default_output_index=_fake_default_output_index,
         beep_player_factory=beep_player_factory,
     )
     await drive
@@ -373,6 +380,7 @@ async def test_beep_lifecycle_fatal_exception(tmp_path: Path):
         ws_factory=ws_factory,
         query_fn=query_devices,
         default_index=_fake_default_index,
+        default_output_index=_fake_default_output_index,
         beep_player_factory=beep_player_factory,
     )
 
@@ -383,4 +391,11 @@ async def test_beep_lifecycle_fatal_exception(tmp_path: Path):
     assert "beep_error" in player.calls
     assert "close" in player.calls
     assert "beep_stop" not in player.calls
+    # Note: beep_start ordering vs beep_error depends on WHERE the synthetic
+    # exception is injected. The current factory raises inside capture.start()
+    # (via input_stream_factory), which runs AFTER beep_start has already fired
+    # in session.py. If this test's injection point is ever moved earlier
+    # (e.g. to preflight), this ordering assertion must be removed — the
+    # invariants that hold universally are only (beep_error in calls) and
+    # (close in calls) and (beep_stop NOT in calls).
     assert player.calls.index("beep_start") < player.calls.index("beep_error")

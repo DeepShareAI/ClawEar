@@ -35,7 +35,13 @@ def _default_default_output_index() -> int:
 
 
 class _NullBeepPlayer:
-    """Stand-in when no output device could be resolved. All methods are no-ops."""
+    """Null-object stand-in used when output device resolution fails.
+
+    Lets session.run() call player.beep_*() and player.close() unconditionally
+    without None-checks, and without a try/except around every call site. The
+    alternative — guarding every beep with `if player is not None:` — would
+    spread the concern across half a dozen exit paths.
+    """
 
     def beep_start(self) -> None: ...
     def beep_stop(self) -> None: ...
