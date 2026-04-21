@@ -59,3 +59,71 @@ edit. Supported keys:
 
 Rotating logs at `~/Library/Logs/ble-mcp/server.log` (5MB × 5 files).
 No characteristic payload bytes are logged — only address, UUID, and byte count.
+
+---
+
+# clawear
+
+A companion CLI in this repo that records audio from the system's default input
+(e.g., a connected Bluetooth headset) and streams it to OpenAI's Realtime API
+while saving a local WAV and writing a Markdown transcript to a
+JavisContext-MCP–watched directory.
+
+## Install
+
+```bash
+uv sync --extra dev
+```
+
+## Configure
+
+Copy `clawear.example.toml` to `~/.config/clawear/config.toml` and edit.
+Important keys:
+
+- `transcripts_dir` — must be inside a JavisContext `WATCH_DIRECTORIES` entry
+  for transcripts to auto-index.
+- `recordings_dir`, `events_dir` — where the WAV and raw-events JSONL go.
+- `instructions` — system prompt for the model; defaults to transcription +
+  passive notes.
+
+Set your API key:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+## Manual smoke test
+
+1. Pair + connect a Bluetooth Classic headset (AirPods, any HFP mic) via
+   macOS Bluetooth preferences; select it as the input in Sound settings.
+2. List visible inputs:
+   ```bash
+   uv run clawear list-devices
+   ```
+3. Preflight (no network):
+   ```bash
+   uv run clawear start --device "AirPods" --dry-run
+   ```
+   Confirm the resolved device name and sample rate are correct.
+4. Start a real session:
+   ```bash
+   uv run clawear start --device "AirPods"
+   ```
+   Speak a few sentences. Include a topic shift, a name, and a decision.
+5. Ctrl-C to stop.
+6. Verify the three artifacts exist:
+   ```bash
+   ls -1 ~/ClawEar/recordings/*.wav \
+         ~/Documents/knowledge-base/clawear/*.md \
+         ~/ClawEar/events/*.jsonl
+   ```
+7. Open the latest `.md` in an editor; confirm the transcript and any
+   `> note:` lines.
+8. In Claude Desktop, ask JavisContext to `search_documents` for a phrase
+   you spoke; confirm the MD is found.
+
+## Logs
+
+Rotating logs at `~/Library/Logs/clawear/clawear.log` (5MB × 5 files).
+No audio bytes or transcript text are logged — only event types, sizes,
+timings, device names, and error details.
