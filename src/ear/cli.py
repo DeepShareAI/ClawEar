@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import os
 import sys
+
 from .capture import Capture
 from .config import load_config
 from .logging_setup import configure_logging
