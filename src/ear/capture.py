@@ -18,6 +18,9 @@ class DeviceNotFoundError(RuntimeError):
     pass
 
 
+_PREFERRED_DEVICE_SUBSTR = "javis"
+
+
 def _default_query_fn() -> list[dict]:
     import sounddevice  # deferred import: only real runtime needs it
 
@@ -40,9 +43,20 @@ def _default_input_stream_factory(**kwargs: Any):
 def resolve_device(
     spec: str | None, devices: list[dict], default_input: int
 ) -> dict:
-    """Pick an input device: substring match if `spec` is given, else the system default."""
+    """Pick an input device.
+
+    If `spec` is given, substring-match against device names (case-insensitive).
+    If `spec` is None, auto-prefer a device whose name contains
+    `_PREFERRED_DEVICE_SUBSTR` (case-insensitive), else fall back to the
+    system default input. Silent fallback — no stderr warning.
+    """
     inputs = [d for d in devices if d.get("max_input_channels", 0) > 0]
     if spec is None:
+        # Auto-preference: try the preferred substring first.
+        for d in inputs:
+            if _PREFERRED_DEVICE_SUBSTR in d["name"].lower():
+                return d
+        # Fall back to the system default.
         if default_input < 0 or default_input >= len(devices):
             raise DeviceNotFoundError(
                 "No default input device available; pass --device to specify one."
@@ -53,6 +67,7 @@ def resolve_device(
                 f"Default device {candidate['name']!r} has no input channels."
             )
         return candidate
+    # Explicit spec: substring match, raise on miss.
     for d in inputs:
         if spec.lower() in d["name"].lower():
             return d

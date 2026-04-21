@@ -140,3 +140,71 @@ async def test_recoverable_status_does_not_trip_error():
     await asyncio.sleep(0)
     assert not cap.error.done()
     cap.stop()
+
+
+from ear.capture import _PREFERRED_DEVICE_SUBSTR  # noqa: F401 — used in assertions below
+
+
+def test_resolve_prefers_javis_when_spec_is_none():
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "Javis BT", "max_input_channels": 1, "max_output_channels": 2},
+        {"name": "External USB", "max_input_channels": 1, "max_output_channels": 0},
+    ]
+    chosen = resolve_device(None, devices, default_input=0)
+    assert chosen["name"] == "Javis BT"
+
+
+def test_resolve_javis_match_is_case_insensitive():
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "javis earbuds", "max_input_channels": 1, "max_output_channels": 2},
+    ]
+    chosen = resolve_device(None, devices, default_input=0)
+    assert chosen["name"] == "javis earbuds"
+
+
+def test_resolve_falls_back_silently_when_no_javis(capsys):
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "External USB", "max_input_channels": 1, "max_output_channels": 0},
+    ]
+    chosen = resolve_device(None, devices, default_input=0)
+    assert chosen["name"] == "Built-in Microphone"
+    captured = capsys.readouterr()
+    assert captured.err == ""   # silent fallback — no stderr noise
+
+
+def test_resolve_explicit_spec_overrides_javis():
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "Javis BT", "max_input_channels": 1, "max_output_channels": 2},
+        {"name": "External USB", "max_input_channels": 1, "max_output_channels": 0},
+    ]
+    chosen = resolve_device("external", devices, default_input=0)
+    assert chosen["name"] == "External USB"
+
+
+def test_resolve_explicit_spec_no_match_still_raises():
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "Javis BT", "max_input_channels": 1, "max_output_channels": 2},
+    ]
+    with pytest.raises(DeviceNotFoundError):
+        resolve_device("nonexistent", devices, default_input=0)
+
+
+def test_resolve_javis_filters_to_input_channels_only():
+    # Javis appears twice — once as input-only, once as output-only.
+    # The input resolver must pick the input-capable entry.
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "Javis BT (Output)", "max_input_channels": 0, "max_output_channels": 2},
+        {"name": "Javis BT (Input)",  "max_input_channels": 1, "max_output_channels": 0},
+    ]
+    chosen = resolve_device(None, devices, default_input=0)
+    assert chosen["name"] == "Javis BT (Input)"
+
+
+def test_preferred_device_substring_constant_is_lowercase_javis():
+    assert _PREFERRED_DEVICE_SUBSTR == "javis"
