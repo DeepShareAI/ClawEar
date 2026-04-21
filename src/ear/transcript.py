@@ -55,9 +55,6 @@ class TranscriptBuilder:
     def append_user_turn(self, text: str) -> None:
         self._body.append(f"**User:** {text}\n\n")
 
-    def append_assistant_turn(self, text: str) -> None:
-        self._body.append(f"**Assistant:** {text}\n\n")
-
     def add_note(self, text: str) -> None:
         self._body.append(f"> note: {text}\n\n")
 

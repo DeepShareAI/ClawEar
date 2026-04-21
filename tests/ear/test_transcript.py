@@ -27,7 +27,7 @@ def test_initial_flush_writes_frontmatter_and_empty_body(tmp_path: Path):
     assert text.endswith("---\n\n")
 
 
-def test_user_and_assistant_turns_append_in_order(tmp_path: Path):
+def test_user_turns_append_in_order_and_no_assistant_method(tmp_path: Path):
     p = tmp_path / "s.md"
     t = TranscriptBuilder(
         session_id="s1",
@@ -38,7 +38,7 @@ def test_user_and_assistant_turns_append_in_order(tmp_path: Path):
         events_path=Path("/e.jsonl"),
     )
     t.append_user_turn("Hello there.")
-    t.append_assistant_turn("> note: greeting detected")
+    t.add_note("interjection")
     t.append_user_turn("Second message.")
     t.flush(p)
 
@@ -47,9 +47,10 @@ def test_user_and_assistant_turns_append_in_order(tmp_path: Path):
     assert (
         body
         == "**User:** Hello there.\n\n"
-        "**Assistant:** > note: greeting detected\n\n"
+        "> note: interjection\n\n"
         "**User:** Second message.\n\n"
     )
+    assert not hasattr(t, "append_assistant_turn")
 
 
 def test_add_note_appears_as_quoted_note_line(tmp_path: Path):
