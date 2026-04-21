@@ -1,9 +1,19 @@
 """Tests for ear.output."""
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
-from ear.output import resolve_output_device
+from ear.output import (
+    BeepPlayer,
+    OutputDeviceNotFoundError,
+    _error_buffer,
+    _start_buffer,
+    _stop_buffer,
+    _tone,
+    resolve_output_device,
+)
+from tests.ear.fake_sounddevice import FakeOutputStream
 
 
 def test_output_prefers_javis():
@@ -48,7 +58,6 @@ def test_output_default_has_no_output_channels_raises():
     devices = [
         {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
     ]
-    from ear.output import OutputDeviceNotFoundError
     with pytest.raises(OutputDeviceNotFoundError):
         resolve_output_device(devices, default_output=0)
 
@@ -57,13 +66,8 @@ def test_output_default_index_out_of_range_raises():
     devices = [
         {"name": "Built-in Output", "max_input_channels": 0, "max_output_channels": 2},
     ]
-    from ear.output import OutputDeviceNotFoundError
     with pytest.raises(OutputDeviceNotFoundError):
         resolve_output_device(devices, default_output=-1)
-
-
-import numpy as np
-from ear.output import _tone, _start_buffer, _stop_buffer, _error_buffer
 
 
 def test_tone_returns_int16_array():
@@ -122,10 +126,6 @@ def test_tone_sample_rate_scales_array_length():
     buf_16k = _tone(frequency=700, duration_s=0.1, samplerate=16000)
     buf_48k = _tone(frequency=700, duration_s=0.1, samplerate=48000)
     assert buf_48k.shape[0] == 3 * buf_16k.shape[0]
-
-
-from tests.ear.fake_sounddevice import FakeOutputStream
-from ear.output import BeepPlayer
 
 
 def _make_device(samplerate: float = 48000.0, index: int = 0) -> dict:
@@ -277,6 +277,26 @@ def test_close_on_dead_stream_is_safe(caplog):
         # Must NOT raise.
         player.close()
     assert any("beep player close failed" in rec.message for rec in caplog.records)
+
+
+def test_stop_failure_during_close_is_swallowed(caplog):
+    # Primary real-world trigger: Bluetooth device disconnects, PortAudio's
+    # stream.stop() raises during shutdown. Must not propagate, and close()
+    # must still proceed to stream.close() regardless.
+    def factory(**kwargs) -> FakeOutputStream:
+        s = FakeOutputStream(**kwargs)
+        s.raise_on_start = None
+        return s
+
+    player = BeepPlayer(_make_device(), output_stream_factory=factory)
+    # Inject the stop failure post-construction (so the stream opens cleanly,
+    # then stop raises during close).
+    player._stream.raise_on_stop = RuntimeError("bluetooth gone at stop")
+    with caplog.at_level("WARNING", logger="ear.output"):
+        player.close()  # Must NOT raise.
+    assert any("beep player stop failed" in rec.message for rec in caplog.records)
+    # And the _stream sentinel must still be cleared so a subsequent close is a no-op.
+    assert player._stream is None
 
 
 def test_double_close_is_safe():

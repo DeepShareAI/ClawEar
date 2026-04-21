@@ -112,6 +112,7 @@ class FakeOutputStream:
     written: list[np.ndarray] = field(default_factory=list)
     raise_on_start: Exception | None = None
     raise_on_write: Exception | None = None
+    raise_on_stop: Exception | None = None
     raise_on_close: Exception | None = None
 
     def start(self) -> None:
@@ -120,6 +121,8 @@ class FakeOutputStream:
         self._started = True
 
     def stop(self) -> None:
+        if self.raise_on_stop is not None:
+            raise self.raise_on_stop
         self._started = False
 
     def close(self) -> None:

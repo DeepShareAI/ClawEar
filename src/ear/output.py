@@ -80,6 +80,7 @@ def _error_buffer(samplerate: int) -> "np.ndarray":
 
 
 def _default_output_stream_factory(**kwargs: Any) -> Any:
+    """Lazy-import sounddevice so tests can inject a fake factory without the real audio stack."""
     import sounddevice
     return sounddevice.OutputStream(**kwargs)
 
