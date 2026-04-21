@@ -109,7 +109,7 @@ export OPENAI_API_KEY="sk-..."
    Confirm the resolved device name and sample rate are correct.
 4. Start a real session:
   ```bash
-   uv run clawear start --device "Javis"
+   uv run --env-file .env clawear start --device "Javis"
   ```
    Speak a few sentences. Include a topic shift, a name, and a decision.
 5. Ctrl-C to stop.
