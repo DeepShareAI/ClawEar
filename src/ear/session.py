@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable
 from .capture import Capture, DeviceNotFoundError, _default_input_stream_factory, _default_query_fn, _default_default_index
 from .config import Config
 from .events_log import EventsLog
+from .output import BeepPlayer, resolve_output_device
 from .realtime_client import RealtimeClient, WSProto, _default_ws_factory
 from .resampler import Resampler
 from .transcript import TranscriptBuilder
@@ -25,6 +26,25 @@ log = logging.getLogger("ear.session")
 _test_shutdown_event: asyncio.Event | None = None
 _test_capture_error: asyncio.Future[str] | None = None
 _test_wav_writer: "WavWriter | None" = None  # type: ignore[name-defined]
+
+
+def _default_default_output_index() -> int:
+    import sounddevice
+    _, out = sounddevice.default.device
+    return int(out)
+
+
+class _NullBeepPlayer:
+    """Stand-in when no output device could be resolved. All methods are no-ops."""
+
+    def beep_start(self) -> None: ...
+    def beep_stop(self) -> None: ...
+    def beep_error(self) -> None: ...
+    def close(self) -> None: ...
+
+
+def _default_beep_player_factory(device: dict) -> BeepPlayer:
+    return BeepPlayer(device)
 
 
 def _session_id_now() -> tuple[str, str]:
@@ -43,6 +63,8 @@ async def run(
     ws_factory: Callable[[str, dict[str, str]], Awaitable[WSProto]] = _default_ws_factory,
     query_fn: Callable[[], list[dict]] = _default_query_fn,
     default_index: int | Callable[[], int] = _default_default_index,
+    default_output_index: int | Callable[[], int] = _default_default_output_index,
+    beep_player_factory: Callable[[dict], BeepPlayer] = _default_beep_player_factory,
 ) -> int:
     """Run one session. Returns an exit code per the design spec."""
     global _test_shutdown_event, _test_capture_error, _test_wav_writer
@@ -57,6 +79,10 @@ async def run(
     evlog: EventsLog | None = None
     transcript: TranscriptBuilder | None = None
     client_obj: RealtimeClient | None = None
+    # player is initialized to a null object so the outer except handler can
+    # always call player.beep_error() / player.close() without a NameError,
+    # even if the exception fires before the real player is constructed.
+    player: BeepPlayer | _NullBeepPlayer = _NullBeepPlayer()
 
     # Preflight is a distinct pre-artifact stage that can exit 1 on bad device.
     try:
@@ -93,8 +119,23 @@ async def run(
         flush=True,
     )
 
+    # Resolve output device (auto-prefers 'javis', falls back to system default).
+    # Done after preflight succeeds but before opening WS so a bad output device
+    # can't waste a WS connect.
+    devices = query_fn()
+    resolved_out_idx = (
+        default_output_index() if callable(default_output_index) else int(default_output_index)
+    )
+    try:
+        output_device = resolve_output_device(devices, resolved_out_idx)
+        player = beep_player_factory(output_device)
+    except Exception as exc:  # OutputDeviceNotFoundError or factory errors
+        log.warning("beep player unavailable: %s", exc)
+        player = _NullBeepPlayer()
+
     if dry_run:
         print("dry-run: not opening WebSocket", flush=True)
+        player.close()
         return 0
 
     try:
@@ -131,7 +172,10 @@ async def run(
             transcript.flush(transcript_path)
             wav.close()
             evlog.close()
+            player.beep_error()
+            player.close()
             return 3
+        player.beep_start()
 
         capture.start()
         _test_capture_error = capture.error
@@ -309,6 +353,14 @@ async def run(
         evlog.close()
         await client_obj.close()
 
+        if capture_error_reason is not None:
+            player.beep_error()
+        elif ws_errored:
+            player.beep_error()
+        else:
+            player.beep_stop()
+        player.close()
+
         print(f"wav: {wav_path}", flush=True)
         print(f"md:  {transcript_path}", flush=True)
         print(f"log: {events_path}", flush=True)
@@ -360,6 +412,14 @@ async def run(
                 await client_obj.close()
             except Exception:
                 pass
+        try:
+            player.beep_error()
+        except Exception:
+            pass
+        try:
+            player.close()
+        except Exception:
+            pass
         _test_shutdown_event = None
         _test_capture_error = None
         _test_wav_writer = None
