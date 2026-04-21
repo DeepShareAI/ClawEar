@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+import numpy as np
+
 from .capture import _PREFERRED_DEVICE_SUBSTR
 
 log = logging.getLogger("ear.output")
@@ -39,3 +41,39 @@ def resolve_output_device(devices: list[dict], default_output: int) -> dict:
             f"Default output device {candidate['name']!r} has no output channels."
         )
     return candidate
+
+
+def _tone(
+    frequency: float,
+    duration_s: float,
+    samplerate: int,
+    amplitude: float = 0.2,
+) -> "np.ndarray":
+    """Generate a pure sine tone as int16 mono PCM.
+
+    amplitude is relative to int16 full-scale (1.0 = 32767).
+    """
+    n = int(samplerate * duration_s)
+    t = np.arange(n, dtype=np.float64) / float(samplerate)
+    wave = np.sin(2.0 * np.pi * frequency * t)
+    peak = int(round(amplitude * 32767))
+    return (wave * peak).astype(np.int16)
+
+
+def _silence(duration_s: float, samplerate: int) -> "np.ndarray":
+    return np.zeros(int(samplerate * duration_s), dtype=np.int16)
+
+
+def _start_buffer(samplerate: int) -> "np.ndarray":
+    return _tone(frequency=700.0, duration_s=0.12, samplerate=samplerate)
+
+
+def _stop_buffer(samplerate: int) -> "np.ndarray":
+    return _tone(frequency=500.0, duration_s=0.12, samplerate=samplerate)
+
+
+def _error_buffer(samplerate: int) -> "np.ndarray":
+    pulse = _tone(frequency=800.0, duration_s=0.06, samplerate=samplerate)
+    gap = _silence(duration_s=0.03, samplerate=samplerate)
+    # pulse + gap + pulse + gap + pulse
+    return np.concatenate([pulse, gap, pulse, gap, pulse])
