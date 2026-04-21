@@ -205,7 +205,6 @@ async def test_session_marks_audio_truncated_on_wav_write_failure(tmp_path: Path
         from ear import session as sess_mod2
         if sess_mod2._test_shutdown_event is not None:
             sess_mod2._test_shutdown_event.set()
-        await ws.push_event({"type": "response.done"})
         await ws.push_close()
 
     drive = asyncio.create_task(driver())
