@@ -98,3 +98,45 @@ async def test_preflight_info_has_name_and_rate():
     assert info["name"] == "AirPods Pro"
     assert info["sample_rate"] == 16000
     assert info["channels"] == 1
+
+
+async def test_fatal_status_sets_error_future():
+    """A fatal PortAudio status must set capture.error without the test hook."""
+    from .fake_sounddevice import make_fatal_status
+
+    cap = Capture(
+        device_spec=None,
+        queue_max_blocks=100,
+        input_stream_factory=InputStream,
+        query_fn=query_devices,
+        default_index=1,
+    )
+    cap.start()
+    assert cap.error is not None
+    assert not cap.error.done()
+    cap._stream.push_status(make_fatal_status())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert cap.error.done()
+    assert "fatal" in cap.error.result().lower()
+    cap.stop()
+
+
+async def test_recoverable_status_does_not_trip_error():
+    """Input overflow alone is recoverable — must NOT set capture.error."""
+    from .fake_sounddevice import make_recoverable_status
+
+    cap = Capture(
+        device_spec=None,
+        queue_max_blocks=100,
+        input_stream_factory=InputStream,
+        query_fn=query_devices,
+        default_index=1,
+    )
+    cap.start()
+    assert cap.error is not None
+    cap._stream.push_status(make_recoverable_status())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert not cap.error.done()
+    cap.stop()

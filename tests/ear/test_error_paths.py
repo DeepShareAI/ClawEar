@@ -126,6 +126,55 @@ async def test_session_exit_2_on_capture_fatal_error(tmp_path: Path):
     assert "device disappeared" in md
 
 
+async def test_session_exit_2_via_production_capture_error(tmp_path: Path):
+    """End-to-end: pushing a fatal status through the fake produces exit 2
+    WITHOUT manipulating the _test_capture_error hook directly.
+    This verifies that production code (not the test hook) wires capture.error."""
+    cfg = Config(
+        log_level="INFO",
+        transcripts_dir=tmp_path / "transcripts",
+        recordings_dir=tmp_path / "recordings",
+        events_dir=tmp_path / "events",
+        openai_model="gpt-4o-realtime-preview",
+        instructions="x",
+        queue_max_blocks=100,
+        realtime_sample_rate=24000,
+        ws_reconnect=False,
+    )
+
+    ws = FakeRealtimeWS()
+    captured_streams: list = []
+
+    def input_stream_factory(**kwargs):
+        s = InputStream(**kwargs)
+        captured_streams.append(s)
+        return s
+
+    async def ws_factory(url: str, extra_headers: dict[str, str]) -> FakeRealtimeWS:
+        return ws
+
+    async def driver():
+        await asyncio.sleep(0.05)
+        from .fake_sounddevice import make_fatal_status
+        captured_streams[0].push_status(make_fatal_status())
+
+    drive = asyncio.create_task(driver())
+    rc = await run(
+        config=cfg,
+        api_key="sk-test",
+        device_spec=None,
+        input_stream_factory=input_stream_factory,
+        ws_factory=ws_factory,
+        query_fn=query_devices,
+        default_index=_fake_default_index,
+    )
+    await drive
+    assert rc == 2
+    md = list((tmp_path / "transcripts").glob("*.md"))[0].read_text()
+    assert "truncated: true" in md
+    assert "portaudio fatal status" in md
+
+
 async def test_session_marks_audio_truncated_on_wav_write_failure(tmp_path: Path):
     """A failing WAV write must flag frontmatter audio_truncated: true but not crash."""
     cfg = Config(

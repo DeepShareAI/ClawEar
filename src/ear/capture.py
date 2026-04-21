@@ -117,7 +117,15 @@ class Capture:
             dtype="int16",
             callback=self._callback,
         )
-        self._stream.start()
+        try:
+            self._stream.start()
+        except Exception as exc:  # noqa: BLE001
+            log.error("capture start() failed: %s", exc, exc_info=True)
+            # The error Future was created above this call, so it exists.
+            if self.error is not None and not self.error.done():
+                self.error.set_result(f"stream start failed: {exc}")
+            # Don't re-raise; session will observe capture.error and exit cleanly.
+            return
         log.info(
             "capture started device=%r rate=%d blocksize=%d",
             info["name"], sample_rate, blocksize,
@@ -135,10 +143,34 @@ class Capture:
                 self._stream = None
         log.info("capture stopped dropped=%d", self.dropped_blocks)
 
+    # asyncio thread.
+    def _set_error(self, reason: str) -> None:
+        if self.error is not None and not self.error.done():
+            self.error.set_result(reason)
+
     # PortAudio thread.
     def _callback(self, indata, frames: int, time_info, status) -> None:
+        # Input-overflow and input-underflow are recoverable — one brief glitch.
+        # Anything else we treat as fatal (e.g., device removed).
         if status:
-            log.warning("portaudio status: %s", status)
+            recoverable = getattr(status, "input_overflow", False) or getattr(
+                status, "input_underflow", False
+            )
+            if recoverable and not any(
+                getattr(status, attr, False)
+                for attr in (
+                    "output_underflow",
+                    "output_overflow",
+                    "priming_output",
+                )
+            ):
+                log.warning("portaudio recoverable status: %s", status)
+            else:
+                # Fatal. Trip the error Future from the asyncio loop.
+                reason = f"portaudio fatal status: {status}"
+                if self._loop is not None and self.error is not None:
+                    self._loop.call_soon_threadsafe(self._set_error, reason)
+                return  # don't enqueue the bad block
         pcm = bytes(indata)
         if self._loop is None:
             return

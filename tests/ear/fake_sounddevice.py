@@ -83,6 +83,63 @@ class FakeInputStream:
         self.pushed_blocks.append(pcm)
         self.callback(arr, arr.shape[0], None, None)
 
+    def push_status(self, status: object) -> None:
+        """Invoke the callback with a synthetic status object (and no PCM data)."""
+        if not self._started:
+            raise RuntimeError("stream not started")
+        empty = np.zeros((0, self.channels), dtype=np.int16)
+        self.callback(empty, 0, None, status)
+
+
+class _FakeStatus:
+    """Fake sounddevice.CallbackFlags subset. Truthy if any flag is set."""
+    def __init__(
+        self,
+        input_overflow: bool = False,
+        input_underflow: bool = False,
+        output_underflow: bool = False,
+        output_overflow: bool = False,
+        priming_output: bool = False,
+    ):
+        self.input_overflow = input_overflow
+        self.input_underflow = input_underflow
+        self.output_underflow = output_underflow
+        self.output_overflow = output_overflow
+        self.priming_output = priming_output
+
+    def __bool__(self) -> bool:
+        return any(
+            [
+                self.input_overflow,
+                self.input_underflow,
+                self.output_underflow,
+                self.output_overflow,
+                self.priming_output,
+            ]
+        )
+
+    def __repr__(self) -> str:
+        flags = [
+            n
+            for n, v in [
+                ("input_overflow", self.input_overflow),
+                ("input_underflow", self.input_underflow),
+                ("output_underflow", self.output_underflow),
+                ("output_overflow", self.output_overflow),
+                ("priming_output", self.priming_output),
+            ]
+            if v
+        ]
+        return f"FakeStatus({','.join(flags) or 'none'})"
+
+
+def make_fatal_status() -> _FakeStatus:
+    return _FakeStatus(output_underflow=True)
+
+
+def make_recoverable_status() -> _FakeStatus:
+    return _FakeStatus(input_overflow=True)
+
 
 def InputStream(
     *,
