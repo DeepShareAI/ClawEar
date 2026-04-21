@@ -110,9 +110,9 @@ class FakeOutputStream:
     _started: bool = False
     _closed: bool = False
     written: list[np.ndarray] = field(default_factory=list)
+    raise_on_start: Exception | None = None
     raise_on_write: Exception | None = None
     raise_on_close: Exception | None = None
-    raise_on_start: Exception | None = None
 
     def start(self) -> None:
         if self.raise_on_start is not None:
@@ -132,6 +132,14 @@ class FakeOutputStream:
             raise self.raise_on_write
         # copy so tests see the buffer exactly as written even if caller reuses the array
         self.written.append(np.asarray(data).copy())
+
+    def __enter__(self) -> "FakeOutputStream":
+        self.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.stop()
+        self.close()
 
 
 class _FakeStatus:

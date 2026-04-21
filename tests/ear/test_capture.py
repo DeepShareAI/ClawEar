@@ -92,7 +92,7 @@ async def test_preflight_info_has_name_and_rate():
         queue_max_blocks=100,
         input_stream_factory=InputStream,
         query_fn=query_devices,
-        default_index=1,
+        default_index=2,
     )
     info = cap.preflight()
     assert info["name"] == "AirPods Pro"

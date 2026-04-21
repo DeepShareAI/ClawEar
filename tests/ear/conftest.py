@@ -5,6 +5,11 @@ import pytest
 
 from .fake_sounddevice import FakeDeviceInfo, set_devices
 
+# Device layout installed by the autouse fixture:
+#   0 — Built-in Microphone   (input only,   48 kHz)
+#   1 — Built-in Output        (output only,  48 kHz) ← default output
+#   2 — AirPods Pro            (input+output, 16 kHz) ← default input
+
 
 @pytest.fixture(autouse=True)
 def _default_fake_devices():
