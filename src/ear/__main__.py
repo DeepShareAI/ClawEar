@@ -1,9 +1,14 @@
-"""Entry point for the `clawear` CLI. Implemented in Task 13."""
+"""Entry point for the `clawear` CLI."""
 from __future__ import annotations
+
+import sys
+
+from .cli import main as _cli_main
 
 
 def main() -> int:
-    raise SystemExit("clawear CLI not yet implemented")
+    rc = _cli_main()
+    sys.exit(rc)
 
 
 if __name__ == "__main__":
