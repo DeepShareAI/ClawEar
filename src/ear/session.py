@@ -22,8 +22,10 @@ from .wav_writer import WavWriter
 
 log = logging.getLogger("ear.session")
 
-# Test-only hook so tests can trigger a synthetic SIGINT without sending signals.
+# Test-only hooks so tests can trigger synthetic signals without OS signals.
 _test_shutdown_event: asyncio.Event | None = None
+_test_capture_error: asyncio.Future[str] | None = None
+_test_wav_writer: "WavWriter | None" = None  # type: ignore[name-defined]
 
 
 def _session_id_now() -> tuple[str, str]:
@@ -45,15 +47,21 @@ async def run(
     default_index: int | Callable[[], int] = _default_default_index,
 ) -> int:
     """Run one session. Returns an exit code per the design spec."""
-    global _test_shutdown_event
-    instructions = instructions_override or config.instructions
+    global _test_shutdown_event, _test_capture_error, _test_wav_writer
 
+    instructions = instructions_override or config.instructions
     session_id, started_at = _session_id_now()
     wav_path = config.recordings_dir / f"{session_id}.wav"
     events_path = config.events_dir / f"{session_id}.jsonl"
     transcript_path = config.transcripts_dir / f"{session_id}.md"
 
-    # Capture + preflight.
+    # Initialized outside the main try so the except handler can finalize them.
+    wav: WavWriter | None = None
+    evlog: EventsLog | None = None
+    transcript: TranscriptBuilder | None = None
+    client_obj: RealtimeClient | None = None
+
+    # Preflight is a distinct pre-artifact stage that can exit 1 on bad device.
     try:
         capture = Capture(
             device_spec=device_spec,
@@ -66,6 +74,21 @@ async def run(
     except DeviceNotFoundError as exc:
         print(f"error: {exc}", flush=True)
         return 1
+    except Exception as exc:  # noqa: BLE001
+        # Preflight failure with no prior artifacts — emit a minimal transcript.
+        log.error("preflight failed: %s", exc, exc_info=True)
+        minimal = TranscriptBuilder(
+            session_id=session_id,
+            started_at=started_at,
+            device="<unknown>",
+            sample_rate=0,
+            audio_path=wav_path,
+            events_path=events_path,
+        )
+        minimal.set_truncated(f"fatal: {type(exc).__name__}: {exc}")
+        minimal.add_note(f"fatal: {type(exc).__name__}: {exc}")
+        minimal.flush(transcript_path)
+        return 5
 
     print(
         f"Recording from: {info['name']} @ {info['sample_rate']} Hz, "
@@ -77,197 +100,278 @@ async def run(
         print("dry-run: not opening WebSocket", flush=True)
         return 0
 
-    # Writers + resampler + realtime client.
-    wav = WavWriter(wav_path, sample_rate=info["sample_rate"])
-    evlog = EventsLog(events_path)
-    transcript = TranscriptBuilder(
-        session_id=session_id,
-        started_at=started_at,
-        device=info["name"],
-        sample_rate=info["sample_rate"],
-        audio_path=wav_path,
-        events_path=events_path,
-    )
-    resampler = Resampler(
-        in_rate=info["sample_rate"], out_rate=config.realtime_sample_rate
-    )
-    client = RealtimeClient(
-        api_key=api_key,
-        model=config.openai_model,
-        instructions=instructions,
-        sample_rate=config.realtime_sample_rate,
-        ws_factory=ws_factory,
-    )
-
-    wav.open()
-    evlog.open()
-    transcript.flush(transcript_path)
-
     try:
-        await client.connect()
-    except Exception as exc:  # noqa: BLE001
-        log.error("realtime connect failed: %s", exc, exc_info=True)
-        transcript.set_truncated(f"connect failed: {exc}")
+        wav = WavWriter(wav_path, sample_rate=info["sample_rate"])
+        _test_wav_writer = wav
+        evlog = EventsLog(events_path)
+        transcript = TranscriptBuilder(
+            session_id=session_id,
+            started_at=started_at,
+            device=info["name"],
+            sample_rate=info["sample_rate"],
+            audio_path=wav_path,
+            events_path=events_path,
+        )
+        resampler = Resampler(
+            in_rate=info["sample_rate"], out_rate=config.realtime_sample_rate
+        )
+        client_obj = RealtimeClient(
+            api_key=api_key,
+            model=config.openai_model,
+            instructions=instructions,
+            sample_rate=config.realtime_sample_rate,
+            ws_factory=ws_factory,
+        )
+
+        wav.open()
+        evlog.open()
         transcript.flush(transcript_path)
-        wav.close()
-        evlog.close()
-        return 3
 
-    capture.start()
+        try:
+            await client_obj.connect()
+        except Exception as exc:  # noqa: BLE001
+            log.error("realtime connect failed: %s", exc, exc_info=True)
+            transcript.set_truncated(f"connect failed: {exc}")
+            transcript.flush(transcript_path)
+            wav.close()
+            evlog.close()
+            return 3
 
-    # State.
-    shutdown_event = asyncio.Event()
-    _test_shutdown_event = shutdown_event
-    realtime_queue: asyncio.Queue[bytes | None] = asyncio.Queue(
-        maxsize=config.queue_max_blocks
-    )
-    realtime_dropped = 0
-    response_done_seen = False
-    ws_errored = False
+        capture.start()
+        _test_capture_error = capture.error
 
-    # Install SIGINT.
-    loop = asyncio.get_event_loop()
-    try:
-        loop.add_signal_handler(signal.SIGINT, shutdown_event.set)
-    except NotImplementedError:
-        # Windows / some test environments. Test-hook above is enough.
-        pass
+        shutdown_event = asyncio.Event()
+        _test_shutdown_event = shutdown_event
+        realtime_queue: asyncio.Queue[bytes | None] = asyncio.Queue(
+            maxsize=config.queue_max_blocks
+        )
+        realtime_dropped = 0
+        response_done_seen = False
+        ws_errored = False
+        wav_errored = False
 
-    async def dispatcher_task() -> None:
-        nonlocal realtime_dropped
-        while True:
-            try:
-                block = await capture.blocks.get()
-            except asyncio.CancelledError:
-                return
-            if block is None:
-                return
-            try:
-                wav.append(block)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("wav append failed: %s", exc)
-            try:
-                realtime_queue.put_nowait(block)
-            except asyncio.QueueFull:
+        # SIGINT: first signal → graceful shutdown; second → cancel tasks.
+        loop = asyncio.get_event_loop()
+        sigint_count = {"n": 0}
+        _tasks_for_cancel: list[asyncio.Task] = []
+
+        def _on_sigint() -> None:
+            sigint_count["n"] += 1
+            if sigint_count["n"] == 1:
+                shutdown_event.set()
+            else:
+                for t in _tasks_for_cancel:
+                    t.cancel()
+
+        try:
+            loop.add_signal_handler(signal.SIGINT, _on_sigint)
+        except NotImplementedError:
+            pass
+
+        async def dispatcher_task() -> None:
+            nonlocal realtime_dropped, wav_errored
+            while True:
                 try:
-                    realtime_queue.get_nowait()
-                    realtime_dropped += 1
-                except asyncio.QueueEmpty:
-                    pass
+                    block = await capture.blocks.get()
+                except asyncio.CancelledError:
+                    return
+                if block is None:
+                    return
+                try:
+                    wav.append(block)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("wav append failed: %s", exc)
+                    wav_errored = True
                 try:
                     realtime_queue.put_nowait(block)
                 except asyncio.QueueFull:
-                    realtime_dropped += 1
+                    try:
+                        realtime_queue.get_nowait()
+                        realtime_dropped += 1
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        realtime_queue.put_nowait(block)
+                    except asyncio.QueueFull:
+                        realtime_dropped += 1
 
-    async def realtime_sender_task() -> None:
-        while True:
+        async def realtime_sender_task() -> None:
+            while True:
+                try:
+                    block = await realtime_queue.get()
+                except asyncio.CancelledError:
+                    return
+                if block is None:
+                    return
+                resampled = resampler.resample(block)
+                if not resampled:
+                    continue
+                try:
+                    await client_obj.send_audio(resampled)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("realtime send failed: %s", exc)
+                    return
+
+        async def event_consumer_task() -> None:
+            nonlocal response_done_seen
+            async for ev in client_obj.events():
+                try:
+                    evlog.append(ev)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("events_log append failed: %s", exc)
+                et = ev.get("type", "")
+                if et == "conversation.item.input_audio_transcription.completed":
+                    text = ev.get("transcript") or ev.get("text") or ""
+                    transcript.append_user_turn(text)
+                    transcript.flush(transcript_path)
+                elif et == "response.text.delta":
+                    delta = ev.get("delta") or ""
+                    transcript.append_assistant_turn(delta)
+                    transcript.flush(transcript_path)
+                elif et == "response.done":
+                    response_done_seen = True
+                    transcript.flush(transcript_path)
+                elif et == "error":
+                    code = ev.get("error", {}).get("code", "unknown")
+                    transcript.add_note(f"api error: {code}")
+                    transcript.flush(transcript_path)
+
+        dispatcher = asyncio.create_task(dispatcher_task())
+        sender = asyncio.create_task(realtime_sender_task())
+        consumer = asyncio.create_task(event_consumer_task())
+        _tasks_for_cancel.extend([dispatcher, sender, consumer])
+
+        # Wait for shutdown OR consumer complete OR capture fatal error.
+        wait_shutdown = asyncio.create_task(shutdown_event.wait())
+        waitables: set = {wait_shutdown, consumer}
+        wait_capture_err: asyncio.Future | None = None
+        if capture.error is not None:
+            wait_capture_err = capture.error
+            waitables.add(wait_capture_err)
+
+        done, _pending = await asyncio.wait(
+            waitables, return_when=asyncio.FIRST_COMPLETED
+        )
+
+        capture_error_reason: str | None = None
+        if wait_capture_err is not None and wait_capture_err in done:
             try:
-                block = await realtime_queue.get()
-            except asyncio.CancelledError:
-                return
-            if block is None:
-                return
-            resampled = resampler.resample(block)
-            if not resampled:
-                continue
-            try:
-                await client.send_audio(resampled)
+                capture_error_reason = wait_capture_err.result()
             except Exception as exc:  # noqa: BLE001
-                log.warning("realtime send failed: %s", exc)
-                return
+                capture_error_reason = str(exc)
 
-    async def event_consumer_task() -> None:
-        nonlocal response_done_seen
-        async for ev in client.events():
-            try:
-                evlog.append(ev)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("events_log append failed: %s", exc)
-            et = ev.get("type", "")
-            if et == "conversation.item.input_audio_transcription.completed":
-                text = ev.get("transcript") or ev.get("text") or ""
-                transcript.append_user_turn(text)
-                transcript.flush(transcript_path)
-            elif et == "response.text.delta":
-                delta = ev.get("delta") or ""
-                transcript.append_assistant_turn(delta)
-                transcript.flush(transcript_path)
-            elif et == "response.done":
-                response_done_seen = True
-                transcript.flush(transcript_path)
-            elif et == "error":
-                code = ev.get("error", {}).get("code", "unknown")
-                transcript.add_note(f"api error: {code}")
-                transcript.flush(transcript_path)
-
-    dispatcher = asyncio.create_task(dispatcher_task())
-    sender = asyncio.create_task(realtime_sender_task())
-    consumer = asyncio.create_task(event_consumer_task())
-
-    # Wait for shutdown OR event consumer completion (natural WS close).
-    wait_shutdown = asyncio.create_task(shutdown_event.wait())
-    done, _pending = await asyncio.wait(
-        {wait_shutdown, consumer},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-
-    if consumer in done and not shutdown_event.is_set():
-        # WebSocket closed before Ctrl-C.
-        if not response_done_seen:
+        if (
+            consumer in done
+            and not shutdown_event.is_set()
+            and capture_error_reason is None
+            and not response_done_seen
+        ):
             ws_errored = True
 
-    # Stop capture + drain dispatcher.
-    capture.stop()
-    await capture.blocks.put(None)
-    try:
-        await asyncio.wait_for(dispatcher, timeout=2.0)
-    except asyncio.TimeoutError:
-        dispatcher.cancel()
-
-    # Drain sender.
-    await realtime_queue.put(None)
-    try:
-        await asyncio.wait_for(sender, timeout=2.0)
-    except asyncio.TimeoutError:
-        sender.cancel()
-
-    # Force-finalize server side (only if we shut down via SIGINT, not a WS drop).
-    if not ws_errored:
+        # Stop capture + drain dispatcher.
+        capture.stop()
+        await capture.blocks.put(None)
         try:
-            await client.commit()
-            await client.request_response()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("realtime finalize send failed: %s", exc)
-            # Don't mark ws_errored here — the WS may have closed naturally after
-            # response.done. Let the consumer result determine final ws_errored state.
+            await asyncio.wait_for(dispatcher, timeout=2.0)
+        except asyncio.TimeoutError:
+            dispatcher.cancel()
 
-    # Wait for consumer ≤5s.
-    try:
-        await asyncio.wait_for(consumer, timeout=5.0)
-    except asyncio.TimeoutError:
-        consumer.cancel()
+        # Drain sender.
+        await realtime_queue.put(None)
+        try:
+            await asyncio.wait_for(sender, timeout=2.0)
+        except asyncio.TimeoutError:
+            sender.cancel()
 
-    # Re-evaluate ws_errored based on whether response.done was seen.
-    # If the WS closed (consumer exited) without response.done, it's an error.
-    if not response_done_seen and not ws_errored:
-        ws_errored = True
+        # Force-finalize server side if we didn't already see response.done.
+        if not ws_errored and capture_error_reason is None:
+            try:
+                await client_obj.commit()
+                await client_obj.request_response()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("realtime finalize send failed: %s", exc)
 
-    # Tally + finalize files.
-    total_dropped = capture.dropped_blocks + realtime_dropped
-    transcript.set_dropped_blocks(total_dropped)
-    if ws_errored:
-        transcript.set_truncated("WebSocket error or premature close")
-        transcript.add_note("session truncated — WebSocket error or premature close")
-    transcript.flush(transcript_path)
-    wav.close()
-    evlog.close()
-    await client.close()
+        # Wait for consumer ≤5s.
+        try:
+            await asyncio.wait_for(consumer, timeout=5.0)
+        except asyncio.TimeoutError:
+            consumer.cancel()
 
-    print(f"wav: {wav_path}", flush=True)
-    print(f"md:  {transcript_path}", flush=True)
-    print(f"log: {events_path}", flush=True)
+        # Re-evaluate ws_errored based on whether response.done was seen.
+        if capture_error_reason is None and not shutdown_event.is_set():
+            if not response_done_seen:
+                ws_errored = True
 
-    _test_shutdown_event = None
-    if ws_errored:
-        return 3
-    return 0
+        # Tally + finalize files.
+        total_dropped = capture.dropped_blocks + realtime_dropped
+        transcript.set_dropped_blocks(total_dropped)
+        if capture_error_reason is not None:
+            transcript.set_truncated(f"capture error: {capture_error_reason}")
+            transcript.add_note(f"session truncated — {capture_error_reason}")
+        elif ws_errored:
+            transcript.set_truncated("WebSocket error or premature close")
+            transcript.add_note(
+                "session truncated — WebSocket error or premature close"
+            )
+        if wav_errored:
+            transcript._frontmatter["audio_truncated"] = True
+        transcript.flush(transcript_path)
+        wav.close()
+        evlog.close()
+        await client_obj.close()
+
+        print(f"wav: {wav_path}", flush=True)
+        print(f"md:  {transcript_path}", flush=True)
+        print(f"log: {events_path}", flush=True)
+
+        _test_shutdown_event = None
+        _test_capture_error = None
+        _test_wav_writer = None
+
+        if capture_error_reason is not None:
+            return 2
+        if ws_errored:
+            return 3
+        return 0
+
+    except Exception as exc:  # noqa: BLE001
+        log.error("session fatal: %s", exc, exc_info=True)
+        if transcript is not None:
+            transcript.set_truncated(f"fatal: {type(exc).__name__}: {exc}")
+            transcript.add_note(f"fatal: {type(exc).__name__}: {exc}")
+            try:
+                transcript.flush(transcript_path)
+            except Exception:
+                pass
+        else:
+            # No transcript object yet — emit a minimal one so there's always SOMETHING on disk.
+            minimal = TranscriptBuilder(
+                session_id=session_id,
+                started_at=started_at,
+                device=info["name"],
+                sample_rate=info["sample_rate"],
+                audio_path=wav_path,
+                events_path=events_path,
+            )
+            minimal.set_truncated(f"fatal: {type(exc).__name__}: {exc}")
+            minimal.add_note(f"fatal: {type(exc).__name__}: {exc}")
+            minimal.flush(transcript_path)
+        if wav is not None:
+            try:
+                wav.close()
+            except Exception:
+                pass
+        if evlog is not None:
+            try:
+                evlog.close()
+            except Exception:
+                pass
+        if client_obj is not None:
+            try:
+                await client_obj.close()
+            except Exception:
+                pass
+        _test_shutdown_event = None
+        _test_capture_error = None
+        _test_wav_writer = None
+        return 5

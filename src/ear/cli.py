@@ -50,7 +50,14 @@ def _cmd_list_devices() -> int:
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
-    config = load_config()
+    import tomllib
+
+    try:
+        config = load_config()
+    except tomllib.TOMLDecodeError as exc:
+        print(f"error: malformed config TOML: {exc}", file=sys.stderr)
+        return 1
+
     configure_logging(config.log_level)
 
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -66,7 +73,6 @@ def _cmd_start(args: argparse.Namespace) -> int:
             return 1
         instructions_override = p.read_text(encoding="utf-8")
 
-    # JavisContext auto-index warning.
     if str(config.transcripts_dir).endswith("ClawEar/transcripts"):
         print(
             "warning: transcripts_dir is the default (~/ClawEar/transcripts). "

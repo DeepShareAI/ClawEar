@@ -81,6 +81,7 @@ class Capture:
         self.blocks: asyncio.Queue[bytes] = asyncio.Queue(maxsize=queue_max_blocks)
         self.dropped_blocks: int = 0
         self._resolved: dict | None = None
+        self.error: asyncio.Future[str] | None = None
 
     @staticmethod
     def list_devices(query_fn: Callable[[], list[dict]] = _default_query_fn) -> list[dict]:
@@ -105,6 +106,7 @@ class Capture:
     def start(self) -> None:
         info = self.preflight()
         self._loop = asyncio.get_event_loop()
+        self.error = self._loop.create_future()
         sample_rate = info["sample_rate"]
         blocksize = int(sample_rate * 0.020)  # ~20ms blocks
         self._stream = self._input_stream_factory(
