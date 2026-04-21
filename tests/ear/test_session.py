@@ -62,7 +62,6 @@ async def _drive_session(
         config=config,
         api_key="sk-test",
         device_spec=None,
-        instructions_override=None,
         dry_run=False,
         input_stream_factory=input_stream_factory,
         ws_factory=ws_factory,
@@ -90,8 +89,6 @@ async def test_happy_path_writes_wav_transcript_and_jsonl(tmp_path: Path):
             "type": "conversation.item.input_audio_transcription.completed",
             "transcript": "Hello world.",
         },
-        {"type": "response.text.delta", "delta": "> note: greeting"},
-        {"type": "response.done"},
     ]
     rc, _ws = await _drive_session(
         cfg, pcm_blocks, ws_script, sigint_after_blocks=5
@@ -103,18 +100,17 @@ async def test_happy_path_writes_wav_transcript_and_jsonl(tmp_path: Path):
     jsonls = list((tmp_path / "events").glob("*.jsonl"))
     assert len(wavs) == 1 and len(mds) == 1 and len(jsonls) == 1
 
-    # WAV: 5 blocks * 320 samples at 16k = 1600 samples.
     with wave.open(str(wavs[0]), "rb") as rf:
         assert rf.getframerate() == 16000
         assert rf.getnframes() == 1600
 
     md_text = mds[0].read_text()
     assert "**User:** Hello world." in md_text
-    assert "**Assistant:** > note: greeting" in md_text
+    assert "**Assistant:**" not in md_text
     assert "truncated: false" in md_text
 
     jsonl_lines = jsonls[0].read_text().splitlines()
-    assert len(jsonl_lines) == 3
+    assert len(jsonl_lines) == 1
 
 
 async def test_sigint_mid_session_marks_truncated_false_on_clean_drain(tmp_path: Path):
@@ -134,14 +130,13 @@ async def test_sigint_mid_session_marks_truncated_false_on_clean_drain(tmp_path:
             "type": "conversation.item.input_audio_transcription.completed",
             "transcript": "Partial.",
         },
-        {"type": "response.done"},
     ]
     rc, _ws = await _drive_session(
         cfg, pcm_blocks, ws_script, sigint_after_blocks=3
     )
     assert rc == 0
     md = list((tmp_path / "transcripts").glob("*.md"))[0].read_text()
-    assert "truncated: false" in md  # SIGINT with drained buffer is still clean
+    assert "truncated: false" in md
 
 
 async def test_ws_mid_session_drop_marks_truncated_true(tmp_path: Path):
@@ -159,7 +154,7 @@ async def test_ws_mid_session_drop_marks_truncated_true(tmp_path: Path):
     # Empty script; the driver closes the WS right away → looks like a drop.
     ws_script: list[dict] = []
     rc, _ws = await _drive_session(cfg, pcm_blocks, ws_script, sigint_after_blocks=None)
-    # WebSocket closed without ever sending response.done → session interprets as drop.
+    # WebSocket closed before we initiated shutdown → session interprets as drop.
     assert rc == 3
     md = list((tmp_path / "transcripts").glob("*.md"))[0].read_text()
     assert "truncated: true" in md

@@ -39,7 +39,6 @@ async def run(
     config: Config,
     api_key: str,
     device_spec: str | None,
-    instructions_override: str | None = None,
     dry_run: bool = False,
     input_stream_factory: Callable[..., Any] = _default_input_stream_factory,
     ws_factory: Callable[[str, dict[str, str]], Awaitable[WSProto]] = _default_ws_factory,
@@ -49,7 +48,6 @@ async def run(
     """Run one session. Returns an exit code per the design spec."""
     global _test_shutdown_event, _test_capture_error, _test_wav_writer
 
-    instructions = instructions_override or config.instructions
     session_id, started_at = _session_id_now()
     wav_path = config.recordings_dir / f"{session_id}.wav"
     events_path = config.events_dir / f"{session_id}.jsonl"
@@ -117,8 +115,7 @@ async def run(
         )
         client_obj = RealtimeClient(
             api_key=api_key,
-            model=config.openai_model,
-            instructions=instructions,
+            model=config.transcription_model,
             sample_rate=config.realtime_sample_rate,
             ws_factory=ws_factory,
         )
@@ -146,7 +143,6 @@ async def run(
             maxsize=config.queue_max_blocks
         )
         realtime_dropped = 0
-        response_done_seen = False
         ws_errored = False
         wav_errored = False
 
@@ -213,7 +209,6 @@ async def run(
                     return
 
         async def event_consumer_task() -> None:
-            nonlocal response_done_seen
             async for ev in client_obj.events():
                 try:
                     evlog.append(ev)
@@ -223,13 +218,6 @@ async def run(
                 if et == "conversation.item.input_audio_transcription.completed":
                     text = ev.get("transcript") or ev.get("text") or ""
                     transcript.append_user_turn(text)
-                    transcript.flush(transcript_path)
-                elif et == "response.text.delta":
-                    delta = ev.get("delta") or ""
-                    transcript.append_assistant_turn(delta)
-                    transcript.flush(transcript_path)
-                elif et == "response.done":
-                    response_done_seen = True
                     transcript.flush(transcript_path)
                 elif et == "error":
                     code = ev.get("error", {}).get("code", "unknown")
@@ -264,7 +252,6 @@ async def run(
             consumer in done
             and not shutdown_event.is_set()
             and capture_error_reason is None
-            and not response_done_seen
         ):
             ws_errored = True
 
@@ -283,11 +270,10 @@ async def run(
         except asyncio.TimeoutError:
             sender.cancel()
 
-        # Force-finalize server side if we didn't already see response.done.
+        # Force-finalize server side by committing any buffered audio.
         if not ws_errored and capture_error_reason is None:
             try:
                 await client_obj.commit()
-                await client_obj.request_response()
             except Exception as exc:  # noqa: BLE001
                 log.warning("realtime finalize send failed: %s", exc)
 
@@ -297,10 +283,14 @@ async def run(
         except asyncio.TimeoutError:
             consumer.cancel()
 
-        # Re-evaluate ws_errored based on whether response.done was seen.
-        if capture_error_reason is None and not shutdown_event.is_set():
-            if not response_done_seen:
-                ws_errored = True
+        # Re-evaluate ws_errored: if neither SIGINT nor capture error initiated
+        # shutdown, consumer ending means the socket died on us.
+        if (
+            capture_error_reason is None
+            and not shutdown_event.is_set()
+            and consumer.done()
+        ):
+            ws_errored = True
 
         # Tally + finalize files.
         total_dropped = capture.dropped_blocks + realtime_dropped
