@@ -5,8 +5,6 @@ import argparse
 import asyncio
 import os
 import sys
-from pathlib import Path
-
 from .capture import Capture
 from .config import load_config
 from .logging_setup import configure_logging
@@ -22,11 +20,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--device",
         default=None,
         help="Substring match against input device name (default: system default).",
-    )
-    ps.add_argument(
-        "--instructions-file",
-        default=None,
-        help="Path to a text file whose contents override config.instructions.",
     )
     ps.add_argument(
         "--dry-run",
@@ -65,14 +58,6 @@ def _cmd_start(args: argparse.Namespace) -> int:
         print("error: OPENAI_API_KEY not set in environment", file=sys.stderr)
         return 1
 
-    instructions_override: str | None = None
-    if args.instructions_file is not None:
-        p = Path(args.instructions_file).expanduser()
-        if not p.exists():
-            print(f"error: --instructions-file not found: {p}", file=sys.stderr)
-            return 1
-        instructions_override = p.read_text(encoding="utf-8")
-
     if str(config.transcripts_dir).endswith("ClawEar/transcripts"):
         print(
             "warning: transcripts_dir is the default (~/ClawEar/transcripts). "
@@ -86,7 +71,6 @@ def _cmd_start(args: argparse.Namespace) -> int:
             config=config,
             api_key=api_key,
             device_spec=args.device,
-            instructions_override=instructions_override,
             dry_run=args.dry_run,
         )
     )

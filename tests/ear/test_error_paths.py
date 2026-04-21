@@ -33,7 +33,6 @@ def test_cmd_start_handles_malformed_toml(tmp_path: Path, monkeypatch, capsys):
 
     class Args:
         device = None
-        instructions_file = None
         dry_run = True
 
     rc = _cmd_start(Args())
