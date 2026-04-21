@@ -77,3 +77,67 @@ def _error_buffer(samplerate: int) -> "np.ndarray":
     gap = _silence(duration_s=0.03, samplerate=samplerate)
     # pulse + gap + pulse + gap + pulse
     return np.concatenate([pulse, gap, pulse, gap, pulse])
+
+
+def _default_output_stream_factory(**kwargs: Any) -> Any:
+    import sounddevice
+    return sounddevice.OutputStream(**kwargs)
+
+
+class BeepPlayer:
+    """Plays short lifecycle tones through a pre-resolved output device.
+
+    All public methods (beep_*, close) catch every exception and log at
+    WARNING rather than re-raising. A dead output device, a disconnected
+    Bluetooth headset, or a PortAudio error must never abort the session.
+    """
+
+    def __init__(
+        self,
+        device: dict,
+        output_stream_factory: Callable[..., Any] = _default_output_stream_factory,
+    ):
+        self._device = device
+        self._samplerate = int(device.get("default_samplerate", 48000))
+        self._stream: Any = None
+        try:
+            self._stream = output_stream_factory(
+                samplerate=self._samplerate,
+                channels=1,
+                dtype="int16",
+                device=device.get("index"),
+            )
+            self._stream.start()
+        except Exception as exc:  # noqa: BLE001 — best-effort by design
+            log.warning("beep player open failed: %s", exc)
+            self._stream = None
+
+    def _play(self, buf) -> None:
+        if self._stream is None:
+            return
+        try:
+            self._stream.write(buf)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("beep failed: %s", exc)
+
+    def beep_start(self) -> None:
+        self._play(_start_buffer(self._samplerate))
+
+    def beep_stop(self) -> None:
+        self._play(_stop_buffer(self._samplerate))
+
+    def beep_error(self) -> None:
+        self._play(_error_buffer(self._samplerate))
+
+    def close(self) -> None:
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("beep player stop failed: %s", exc)
+        try:
+            self._stream.close()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("beep player close failed: %s", exc)
+        self._stream = None
