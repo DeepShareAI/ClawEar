@@ -26,14 +26,16 @@ the Claude Desktop process.
 Copy `config.example.toml` to `~/.config/ble-mcp/config.toml` and
 edit. Supported keys:
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `log_level` | `"INFO"` | Python log level |
-| `scan_default_seconds` | `5` | Default scan duration |
-| `scan_max_seconds` | `30` | Max scan duration (caller is clamped) |
-| `max_connections` | `8` | Max concurrent BLE connections |
-| `notification_buffer_size` | `500` | Ring-buffer size for pushed notifications |
-| `write_allowlist` | `[]` | Characteristic UUIDs that skip `confirm=True` on writes |
+
+| Key                        | Default  | Meaning                                                 |
+| -------------------------- | -------- | ------------------------------------------------------- |
+| `log_level`                | `"INFO"` | Python log level                                        |
+| `scan_default_seconds`     | `5`      | Default scan duration                                   |
+| `scan_max_seconds`         | `30`     | Max scan duration (caller is clamped)                   |
+| `max_connections`          | `8`      | Max concurrent BLE connections                          |
+| `notification_buffer_size` | `500`    | Ring-buffer size for pushed notifications               |
+| `write_allowlist`          | `[]`     | Characteristic UUIDs that skip `confirm=True` on writes |
+
 
 ## Tools
 
@@ -52,7 +54,7 @@ edit. Supported keys:
 
 1. Put a BLE heart-rate monitor (or any advertising BLE device) near your Mac.
 2. In Claude Desktop: "Run ble_scan for 5 seconds and show what you found."
-3. "Connect to <address> and read characteristic 00002a38-0000-1000-8000-00805f9b34fb."
+3. "Connect to  and read characteristic 00002a38-0000-1000-8000-00805f9b34fb."
 4. "Subscribe to 00002a37-0000-1000-8000-00805f9b34fb and poll notifications for 30 seconds."
 
 ## Logs
@@ -81,10 +83,10 @@ Copy `clawear.example.toml` to `~/.config/clawear/config.toml` and edit.
 Important keys:
 
 - `transcripts_dir` — must be inside a JavisContext `WATCH_DIRECTORIES` entry
-  for transcripts to auto-index.
+for transcripts to auto-index.
 - `recordings_dir`, `events_dir` — where the WAV and raw-events JSONL go.
 - `instructions` — system prompt for the model; defaults to transcription +
-  passive notes.
+passive notes.
 
 Set your API key:
 
@@ -95,32 +97,32 @@ export OPENAI_API_KEY="sk-..."
 ## Manual smoke test
 
 1. Pair + connect a Bluetooth Classic headset (AirPods, any HFP mic) via
-   macOS Bluetooth preferences; select it as the input in Sound settings.
+  macOS Bluetooth preferences; select it as the input in Sound settings.
 2. List visible inputs:
-   ```bash
+  ```bash
    uv run clawear list-devices
-   ```
+  ```
 3. Preflight (no network):
-   ```bash
-   uv run clawear start --device "AirPods" --dry-run
-   ```
+  ```bash
+   uv run clawear start --device "Javis" --dry-run
+  ```
    Confirm the resolved device name and sample rate are correct.
 4. Start a real session:
-   ```bash
-   uv run clawear start --device "AirPods"
-   ```
+  ```bash
+   uv run clawear start --device "Javis"
+  ```
    Speak a few sentences. Include a topic shift, a name, and a decision.
 5. Ctrl-C to stop.
 6. Verify the three artifacts exist:
-   ```bash
+  ```bash
    ls -1 ~/ClawEar/recordings/*.wav \
          ~/Documents/knowledge-base/clawear/*.md \
          ~/ClawEar/events/*.jsonl
-   ```
+  ```
 7. Open the latest `.md` in an editor; confirm the transcript and any
-   `> note:` lines.
+  `> note:` lines.
 8. In Claude Desktop, ask JavisContext to `search_documents` for a phrase
-   you spoke; confirm the MD is found.
+  you spoke; confirm the MD is found.
 
 ## Logs
 
