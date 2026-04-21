@@ -9,15 +9,11 @@ transcripts_dir = "~/Documents/knowledge-base/clawear"
 recordings_dir  = "~/ClawEar/recordings"
 events_dir      = "~/ClawEar/events"
 
-# OpenAI Realtime settings.
-openai_model = "gpt-4o-realtime-preview"
-# System instructions for the model. Default = transcription + passive notes.
-instructions = """
-You are an audio observer. Transcribe the speaker's words faithfully.
-When a clear topic shift, action item, decision, or named entity appears,
-add a short inline note on its own line prefixed with "> note:".
-Do not respond conversationally; do not add commentary beyond such notes.
-"""
+# OpenAI transcription model. Options:
+#   "gpt-4o-transcribe"       - most accurate (default)
+#   "gpt-4o-mini-transcribe"  - good accuracy, cheaper
+#   "whisper-1"               - legacy, cheapest
+transcription_model = "gpt-4o-transcribe"
 
 # Audio / streaming tuning.
 queue_max_blocks = 1000         # ~20s of 20ms blocks before drop-oldest kicks in

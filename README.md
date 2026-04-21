@@ -85,8 +85,12 @@ Important keys:
 - `transcripts_dir` — must be inside a JavisContext `WATCH_DIRECTORIES` entry
 for transcripts to auto-index.
 - `recordings_dir`, `events_dir` — where the WAV and raw-events JSONL go.
-- `instructions` — system prompt for the model; defaults to transcription +
-passive notes.
+- `transcription_model` — OpenAI transcription model to use; defaults to
+  `gpt-4o-transcribe`. Alternatives: `gpt-4o-mini-transcribe`, `whisper-1`.
+
+> **Migrating from an earlier config:** If your `~/.config/clawear/config.toml`
+> still has `openai_model = "..."` or `instructions = "..."`, remove them. The
+> loader silently ignores unknown keys, but leaving them in place is misleading.
 
 Set your API key:
 
