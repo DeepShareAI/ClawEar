@@ -1,8 +1,8 @@
-"""Async WebSocket client for OpenAI's Realtime API.
+"""Async WebSocket client for OpenAI's transcription-only Realtime session.
 
-- `connect()` opens the socket and sends session.update.
+- `connect()` opens the socket and sends transcription_session.update.
 - `send_audio(pcm)` forwards a PCM16 mono @ sample_rate chunk as base64.
-- `commit()` / `request_response()` force-flush the server-side buffer.
+- `commit()` force-flushes the server-side buffer (used at shutdown).
 - `events()` yields parsed event dicts until the socket closes.
 """
 from __future__ import annotations
@@ -34,19 +34,17 @@ class RealtimeClient:
         self,
         api_key: str,
         model: str,
-        instructions: str,
         sample_rate: int,
         ws_factory: Callable[[str, dict[str, str]], Awaitable[WSProto]] = _default_ws_factory,
     ):
         self._api_key = api_key
         self._model = model
-        self._instructions = instructions
         self._sample_rate = sample_rate
         self._ws_factory = ws_factory
         self._ws: WSProto | None = None
 
     async def connect(self) -> None:
-        url = f"wss://api.openai.com/v1/realtime?model={self._model}"
+        url = "wss://api.openai.com/v1/realtime?intent=transcription"
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "OpenAI-Beta": "realtime=v1",
@@ -54,17 +52,15 @@ class RealtimeClient:
         self._ws = await self._ws_factory(url, headers)
         await self._send(
             {
-                "type": "session.update",
+                "type": "transcription_session.update",
                 "session": {
-                    "modalities": ["text"],
-                    "instructions": self._instructions,
                     "input_audio_format": "pcm16",
-                    "input_audio_transcription": {"model": "whisper-1"},
-                    "turn_detection": {"type": "server_vad"},
+                    "input_audio_transcription": {"model": self._model},
+                    "turn_detection": {"type": "semantic_vad"},
                 },
             }
         )
-        log.info("realtime connected model=%s", self._model)
+        log.info("realtime transcription session connected model=%s", self._model)
 
     async def send_audio(self, pcm: bytes) -> None:
         b64 = base64.b64encode(pcm).decode("ascii")
@@ -72,9 +68,6 @@ class RealtimeClient:
 
     async def commit(self) -> None:
         await self._send({"type": "input_audio_buffer.commit"})
-
-    async def request_response(self) -> None:
-        await self._send({"type": "response.create"})
 
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         if self._ws is None:
