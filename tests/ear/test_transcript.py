@@ -7,7 +7,7 @@ from ear.transcript import TranscriptBuilder
 def test_initial_flush_writes_frontmatter_and_empty_body(tmp_path: Path):
     p = tmp_path / "s.md"
     t = TranscriptBuilder(
-        session_id="2026-04-20T14-33-12Z",
+        session_id="2026-04-20_14-33-12",
         started_at="2026-04-20T14:33:12Z",
         device="AirPods Pro",
         sample_rate=16000,
@@ -17,7 +17,7 @@ def test_initial_flush_writes_frontmatter_and_empty_body(tmp_path: Path):
     t.flush(p)
     text = p.read_text()
     assert text.startswith("---\n")
-    assert "session_id: 2026-04-20T14-33-12Z\n" in text
+    assert "session_id: 2026-04-20_14-33-12\n" in text
     assert "device: AirPods Pro\n" in text
     assert "sample_rate: 16000\n" in text
     assert "audio_path: /abs/audio.wav\n" in text

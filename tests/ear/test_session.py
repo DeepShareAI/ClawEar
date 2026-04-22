@@ -474,3 +474,32 @@ async def test_null_beep_player_when_output_resolve_fails(tmp_path: Path):
     # beep_player_factory was never called — the resolver raised first and
     # the except branch assigned _NullBeepPlayer directly.
     assert factory_call_count[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _format_session_id
+# ---------------------------------------------------------------------------
+from datetime import datetime, timezone, timedelta
+
+from ear.session import _format_session_id
+
+
+def test_format_session_id_local_time_with_offset():
+    # Fixed aware datetime: 2026-04-21 14:12:39 in UTC+08:00
+    tz = timezone(timedelta(hours=8))
+    dt = datetime(2026, 4, 21, 14, 12, 39, tzinfo=tz)
+
+    sid, started_at = _format_session_id(dt)
+
+    assert sid == "2026-04-21_14-12-39"
+    assert started_at == "2026-04-21T14:12:39+08:00"
+
+
+def test_format_session_id_negative_offset():
+    tz = timezone(timedelta(hours=-5))
+    dt = datetime(2026, 4, 21, 9, 30, 0, tzinfo=tz)
+
+    sid, started_at = _format_session_id(dt)
+
+    assert sid == "2026-04-21_09-30-00"
+    assert started_at == "2026-04-21T09:30:00-05:00"

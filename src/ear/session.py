@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Awaitable, Callable
 
 from .capture import Capture, DeviceNotFoundError, _default_input_stream_factory, _default_query_fn, _default_default_index
@@ -53,11 +53,21 @@ def _default_beep_player_factory(device: dict) -> BeepPlayer:
     return BeepPlayer(device)
 
 
-def _session_id_now() -> tuple[str, str]:
-    now = datetime.now(timezone.utc)
-    sid = now.strftime("%Y-%m-%dT%H-%M-%SZ")
-    started_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+def _format_session_id(dt: datetime) -> tuple[str, str]:
+    """Format an aware datetime as (filename_stem, iso_started_at).
+
+    filename_stem: YYYY-MM-DD_HH-MM-SS in the datetime's local timezone.
+    iso_started_at: ISO 8601 with offset (e.g. 2026-04-21T14:12:39+08:00).
+    """
+    if dt.tzinfo is None:
+        raise ValueError("datetime must be timezone-aware")
+    sid = dt.strftime("%Y-%m-%d_%H-%M-%S")
+    started_at = dt.isoformat(timespec="seconds")
     return sid, started_at
+
+
+def _session_id_now() -> tuple[str, str]:
+    return _format_session_id(datetime.now().astimezone())
 
 
 async def run(
