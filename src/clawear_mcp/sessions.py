@@ -51,8 +51,6 @@ class SessionsRegistry:
     def refresh(self) -> dict[str, list[str]]:
         """Re-scan transcripts/; return {'added': [...], 'modified': [...], 'removed': [...]}."""
         transcripts_dir = self._root / "transcripts"
-        recordings_dir = self._root / "recordings"
-        events_dir = self._root / "events"
 
         added: list[str] = []
         modified: list[str] = []
