@@ -1,156 +1,112 @@
-# ble-mcp
+# ClawEar
 
-A local macOS MCP server that exposes BLE scan / connect / read / write /
-subscribe as tools to Claude Desktop, backed by `bleak`.
+A local audio capture + MCP server combo for conversational AI workflows.
 
-## Install (development)
+- **`clawear`** — a CLI that records from a microphone, streams PCM audio to OpenAI Realtime, and writes a session triple to `~/ClawEar`:
+  - `transcripts/<session_id>.md` — YAML frontmatter + dialog
+  - `recordings/<session_id>.wav` — 16 kHz mono PCM
+  - `events/<session_id>.jsonl` — OpenAI Realtime event stream
+- **`clawear-mcp`** — an MCP server that indexes the above and exposes session navigation, FTS5 transcript search, event summaries, and WAV metadata to MCP clients (Claude Desktop, Claude Code, Codex, etc.).
 
-Requires Python 3.11+ and `uv`.
-
-```bash
-uv sync --extra dev
-uv run pytest
-```
-
-## Configure Claude Desktop
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` and
-add the entry from `claude_desktop_config.json.example` (edit the
-`--directory` to point at your checkout). Restart Claude Desktop.
-
-The first BLE op will trigger the macOS Bluetooth permission prompt against
-the Claude Desktop process.
-
-## Configure the server
-
-Copy `config.example.toml` to `~/.config/ble-mcp/config.toml` and
-edit. Supported keys:
-
-
-| Key                        | Default  | Meaning                                                 |
-| -------------------------- | -------- | ------------------------------------------------------- |
-| `log_level`                | `"INFO"` | Python log level                                        |
-| `scan_default_seconds`     | `5`      | Default scan duration                                   |
-| `scan_max_seconds`         | `30`     | Max scan duration (caller is clamped)                   |
-| `max_connections`          | `8`      | Max concurrent BLE connections                          |
-| `notification_buffer_size` | `500`    | Ring-buffer size for pushed notifications               |
-| `write_allowlist`          | `[]`     | Characteristic UUIDs that skip `confirm=True` on writes |
-
-
-## Tools
-
-- `ble_scan(duration_s=5, name_filter=None, rssi_min=None)`
-- `ble_last_scan()`
-- `ble_connect(address, timeout_s=10)`
-- `ble_disconnect(address)`
-- `ble_list_connections()`
-- `ble_read(address, characteristic_uuid)`
-- `ble_write(address, characteristic_uuid, data_hex, response=True, confirm=False)`
-- `ble_subscribe(address, characteristic_uuid)`
-- `ble_unsubscribe(address, characteristic_uuid)`
-- `ble_notifications(address=None, since=None, limit=200)`
-
-## Manual smoke test
-
-1. Put a BLE heart-rate monitor (or any advertising BLE device) near your Mac.
-2. In Claude Desktop: "Run ble_scan for 5 seconds and show what you found."
-3. "Connect to  and read characteristic 00002a38-0000-1000-8000-00805f9b34fb."
-4. "Subscribe to 00002a37-0000-1000-8000-00805f9b34fb and poll notifications for 30 seconds."
-
-## Logs
-
-Rotating logs at `~/Library/Logs/ble-mcp/server.log` (5MB × 5 files).
-No characteristic payload bytes are logged — only address, UUID, and byte count.
-
----
-
-# clawear
-
-A companion CLI in this repo that records audio from the system's default input
-(e.g., a connected Bluetooth headset) and streams it to OpenAI's Realtime API
-while saving a local WAV and writing a Markdown transcript to a
-JavisContext-MCP–watched directory.
+Session ids use local-time format: `YYYY-MM-DD_HH-MM-SS` (e.g. `2026-04-21_14-12-39`). Frontmatter carries the unambiguous ISO 8601 `started_at` with timezone offset.
 
 ## Install
 
 ```bash
-uv sync --extra dev
+git clone <this-repo>
+cd ClawEar
+uv sync
 ```
 
-## Configure
+This installs two console scripts into `.venv/bin/`:
 
-Copy `clawear.example.toml` to `~/.config/clawear/config.toml` and edit.
-Important keys:
+- `clawear` — record
+- `clawear-mcp` — serve
 
-- `transcripts_dir` — must be inside a JavisContext `WATCH_DIRECTORIES` entry
-for transcripts to auto-index.
-- `recordings_dir`, `events_dir` — where the WAV and raw-events JSONL go.
-- `transcription_model` — OpenAI transcription model to use; defaults to
-  `gpt-4o-transcribe`. Alternatives: `gpt-4o-mini-transcribe`, `whisper-1`.
+## Record with `clawear`
 
-> **Migrating from an earlier config:** If your `~/.config/clawear/config.toml`
-> still has `openai_model = "..."` or `instructions = "..."`, remove them. The
-> loader silently ignores unknown keys, but leaving them in place is misleading.
-
-Set your API key:
+See `src/ear/cli.py` for arguments. A `.env` with `OPENAI_API_KEY` is expected.
 
 ```bash
-export OPENAI_API_KEY="sk-..."
+uv run --env-file .env clawear
 ```
 
-## Manual smoke test
+Files land in `$CLAWEAR_DATA_ROOT` (default `~/ClawEar`).
 
-1. Pair + connect a Bluetooth Classic headset (AirPods, any HFP mic) via
-  macOS Bluetooth preferences; select it as the input in Sound settings.
-2. List visible inputs:
-  ```bash
-   uv run clawear list-devices
-  ```
-3. Preflight (no network):
-  ```bash
-   uv run clawear start --device "Javis" --dry-run
-  ```
-   Confirm the resolved device name and sample rate are correct.
-4. Start a real session:
-  ```bash
-   uv run --env-file .env clawear start --device "Javis"
-  ```
-   Speak a few sentences. Include a topic shift, a name, and a decision.
-5. Ctrl-C to stop.
-6. Verify the three artifacts exist:
-  ```bash
-   ls -1 ~/ClawEar/recordings/*.wav \
-         ~/Documents/knowledge-base/clawear/*.md \
-         ~/ClawEar/events/*.jsonl
-  ```
-7. Open the latest `.md` in an editor; confirm the transcript contains
-   `**User:**` turns and no `**Assistant:**` turns. If the session hit an
-   API error mid-stream, it will appear as a `> note: api error: <code>` line.
-8. In Claude Desktop, ask JavisContext to `search_documents` for a phrase
-  you spoke; confirm the MD is found.
+## Serve with `clawear-mcp`
 
-### Smoke test with Javis
+Set `CLAWEAR_DATA_ROOT` and run:
 
-Pair your Javis device with macOS (Bluetooth, USB, or whatever transport it uses) so it appears in System Settings → Sound as an input and output device.
+```bash
+CLAWEAR_DATA_ROOT=~/ClawEar uv run clawear-mcp
+```
 
-> **Before the first run — set macOS output back to built-in speakers.**
->
-> macOS often auto-switches the **system default output** to a newly-connected Bluetooth audio device (AirPods, Javis, etc.). When that happens, Chrome / Atlas / Spotify / any app that follows "System Default" will also play through Javis — not what this feature is meant to do. ClawEar never mutates the system default, so the fix is a one-time manual step:
->
-> **System Settings → Sound → Output → pick "MacBook Pro Speakers"** (or whatever your built-in output is called).
->
-> After that, other apps stay on built-in while ClawEar opens Javis explicitly for its recording + beeps. macOS typically remembers this choice for the device combination, so you usually only do it once per Javis pairing. If you ever notice Chrome playing through Javis again, re-check this setting — it means macOS auto-switched back on the latest reconnect.
+The server speaks MCP over stdio — register it in your client.
 
-1. Confirm Javis is enumerated: `clawear list-devices` — expect to see an entry whose name contains "Javis".
-2. Run `clawear` with **no** `--device` flag. You should hear a short 700 Hz beep (120 ms, higher pitch = "start") from the Javis speaker. The terminal prints `Recording from: Javis … @ <rate> Hz`.
-3. While recording, open Slack / WhatsApp / Zoom / any other audio app and start a call. It should use the MacBook's built-in mic + speaker — unaffected by ClawEar. ClawEar keeps recording through Javis.
-4. Ctrl+C. Expect a short 500 Hz beep (120 ms, lower pitch = "stop") from the Javis speaker, then the usual `wav:` / `md:` / `log:` paths.
-5. Unpair Javis and re-run `clawear`. Silent fallback to built-in: recording and beeps play through MacBook speakers with no stderr warning.
+### Claude Desktop
 
-Expected: all other apps on the machine continue using whatever audio device they were already bound to. ClawEar never mutates the macOS system default.
+macOS: edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
-## Logs
+```json
+{
+  "mcpServers": {
+    "clawear": {
+      "command": "/absolute/path/to/ClawEar/.venv/bin/clawear-mcp",
+      "args": [],
+      "env": {
+        "CLAWEAR_DATA_ROOT": "/Users/you/ClawEar"
+      }
+    }
+  }
+}
+```
 
-Rotating logs at `~/Library/Logs/clawear/clawear.log` (5MB × 5 files).
-No audio bytes or transcript text are logged — only event types, sizes,
-timings, device names, and error details.
+Restart Claude Desktop.
+
+### Claude Code
+
+Add to `~/.claude/mcp_config.json` (or the project-local equivalent) using the same JSON shape.
+
+### Codex
+
+Follow your Codex client's MCP-server registration docs with the same command + env block.
+
+## Tool reference
+
+| Tool | Purpose |
+|------|---------|
+| `list_sessions(since?, until?, limit=50)` | List sessions, newest first, optionally bounded by `started_at` |
+| `get_session(session_id)` | Frontmatter fields + computed stats (duration, event count) |
+| `get_transcript(session_id, include_frontmatter=False)` | The markdown body |
+| `search_transcripts(query, since?, until?, limit=10, snippet_tokens=32)` | FTS5 full-text search with snippets |
+| `get_event_summary(session_id)` | Counts by event type + curated timeline + errors |
+| `get_events(session_id, types?, item_id?, limit=200, offset=0)` | Raw events with filters + pagination |
+| `get_recording_info(session_id)` | WAV metadata (duration, rate, channels, bit depth) |
+
+## Resource URIs
+
+| URI | MIME | Content |
+|-----|------|---------|
+| `clawear://transcript/<session_id>` | `text/markdown` | The `.md` file |
+| `clawear://events/<session_id>` | `application/jsonl` | The `.jsonl` file |
+| `clawear://recording/<session_id>` | `audio/wav` | The `.wav` bytes |
+
+## Migrating existing sessions
+
+If you have sessions recorded under the old UTC format (`...T04-12-39Z`), run the one-shot rename:
+
+```bash
+cd ClawEar
+uv run python -m scripts.migrate_timestamps --dry-run  # preview
+uv run python -m scripts.migrate_timestamps            # apply
+```
+
+The script is idempotent — already-migrated sessions are detected and skipped.
+
+## Development
+
+```bash
+uv run pytest tests -v                  # full suite
+uv run pytest tests/clawear_mcp -v      # just the MCP module
+uv run pytest tests/ear -v              # just the recording CLI
+```

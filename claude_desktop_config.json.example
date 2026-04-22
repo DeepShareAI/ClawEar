@@ -1,15 +1,11 @@
 {
   "mcpServers": {
-    "ble-mcp": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/ClawEar",
-        "run",
-        "python",
-        "-m",
-        "ble_mcp"
-      ]
+    "clawear": {
+      "command": "/absolute/path/to/ClawEar/.venv/bin/clawear-mcp",
+      "args": [],
+      "env": {
+        "CLAWEAR_DATA_ROOT": "/Users/you/ClawEar"
+      }
     }
   }
 }
