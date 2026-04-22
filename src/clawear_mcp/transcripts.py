@@ -6,10 +6,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover
-    yaml = None  # fallback handled below
+import logging
+
+import yaml
+
+log = logging.getLogger("clawear_mcp.transcripts")
 
 
 class FTS5NotAvailable(RuntimeError):
@@ -32,32 +33,13 @@ def parse_frontmatter(md_text: str) -> tuple[dict[str, Any], str]:
 
 
 def _parse_yaml_dict(raw: str) -> dict[str, Any]:
-    """Minimal YAML parse for the narrow frontmatter we control.
-
-    Uses PyYAML if available. Otherwise: manual key: value parsing.
-    """
-    if yaml is not None:
-        try:
-            loaded = yaml.safe_load(raw) or {}
-            return loaded if isinstance(loaded, dict) else {}
-        except Exception:
-            return {}
-    # Manual fallback: key: value per line, strip quotes.
-    out: dict[str, Any] = {}
-    for line in raw.splitlines():
-        if ":" not in line:
-            continue
-        k, _, v = line.partition(":")
-        k = k.strip()
-        v = v.strip().strip("'").strip('"')
-        if v.lower() in ("true", "false"):
-            out[k] = v.lower() == "true"
-        else:
-            try:
-                out[k] = int(v)
-            except ValueError:
-                out[k] = v
-    return out
+    """Parse the frontmatter YAML block. Returns {} on parse error (logged)."""
+    try:
+        loaded = yaml.safe_load(raw) or {}
+    except yaml.YAMLError as exc:
+        log.warning("frontmatter YAML parse failed: %s", exc)
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def strip_notes(body: str) -> str:

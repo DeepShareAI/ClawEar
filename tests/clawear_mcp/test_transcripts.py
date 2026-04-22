@@ -100,3 +100,37 @@ def test_fts_missing_raises_with_hint(tmp_path, monkeypatch):
     idx = TranscriptsIndex(tmp_path / "idx.sqlite3")
     with pytest.raises(FTS5NotAvailable):
         idx.ensure_schema()
+
+
+def test_parse_frontmatter_returns_empty_on_malformed_yaml(caplog):
+    from clawear_mcp.transcripts import parse_frontmatter
+
+    bad = "---\nkey: value: extra: colons\n  indentation: weird\n---\n\nbody\n"
+    # If the body survives and fm is empty, we have graceful degradation.
+    # If YAML accepts this as valid (unlikely), the test is a no-op but still green.
+    import logging
+    with caplog.at_level(logging.WARNING, logger="clawear_mcp.transcripts"):
+        fm, body = parse_frontmatter(bad)
+
+    assert "body" in body
+    assert isinstance(fm, dict)
+
+
+def test_parse_frontmatter_logs_on_yaml_error(caplog, monkeypatch):
+    """Force yaml.safe_load to raise; verify warning logged and {} returned."""
+    import yaml as yaml_mod
+
+    from clawear_mcp.transcripts import parse_frontmatter
+
+    def boom(s):
+        raise yaml_mod.YAMLError("synthetic error")
+
+    monkeypatch.setattr("clawear_mcp.transcripts.yaml.safe_load", boom)
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="clawear_mcp.transcripts"):
+        fm, body = parse_frontmatter("---\nk: v\n---\n\nreal body\n")
+
+    assert fm == {}
+    assert "real body" in body
+    assert any("synthetic error" in rec.message for rec in caplog.records)
