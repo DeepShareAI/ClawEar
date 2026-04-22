@@ -65,20 +65,21 @@ class SessionsRegistry:
                     if not de.is_file() or not de.name.endswith(".md"):
                         continue
                     sid = de.name[:-3]  # strip .md
-                    on_disk[sid] = de.stat().st_mtime
+                    try:
+                        on_disk[sid] = de.stat().st_mtime
+                    except OSError:
+                        # File vanished between scandir and stat, or permission issue.
+                        # Skip it — next refresh will try again.
+                        continue
 
         # Additions + modifications
         for sid, mtime in on_disk.items():
             existing = self._entries.get(sid)
             if existing is None:
-                self._entries[sid] = self._build_entry(
-                    sid, mtime, recordings_dir, events_dir, transcripts_dir
-                )
+                self._entries[sid] = self._build_entry(sid, mtime)
                 added.append(sid)
             elif mtime > existing.transcript_mtime:
-                self._entries[sid] = self._build_entry(
-                    sid, mtime, recordings_dir, events_dir, transcripts_dir
-                )
+                self._entries[sid] = self._build_entry(sid, mtime)
                 modified.append(sid)
 
         # Removals
@@ -89,19 +90,12 @@ class SessionsRegistry:
 
         return {"added": added, "modified": modified, "removed": removed}
 
-    @staticmethod
-    def _build_entry(
-        sid: str,
-        mtime: float,
-        recordings_dir: Path,
-        events_dir: Path,
-        transcripts_dir: Path,
-    ) -> SessionEntry:
-        wav = recordings_dir / f"{sid}.wav"
-        jsonl = events_dir / f"{sid}.jsonl"
+    def _build_entry(self, sid: str, mtime: float) -> SessionEntry:
+        wav = self._root / "recordings" / f"{sid}.wav"
+        jsonl = self._root / "events" / f"{sid}.jsonl"
         return SessionEntry(
             session_id=sid,
-            transcript_path=transcripts_dir / f"{sid}.md",
+            transcript_path=self._root / "transcripts" / f"{sid}.md",
             wav_path=wav if wav.exists() else None,
             events_path=jsonl if jsonl.exists() else None,
             transcript_mtime=mtime,

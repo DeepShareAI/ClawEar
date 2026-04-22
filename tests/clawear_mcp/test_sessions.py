@@ -76,3 +76,52 @@ def test_registry_handles_partial_session(tmp_data_root, partial_session):
     entry = reg.get(partial_session)
     assert entry.has_recording is False
     assert entry.wav_path is None
+
+
+def test_registry_nearest_returns_prefix_matches(tmp_data_root, sample_session):
+    """nearest() returns sessions sharing a date prefix with the query."""
+    from clawear_mcp.sessions import SessionsRegistry
+    from tests.clawear_mcp.conftest import _write_transcript
+
+    # Add a second session on the same date + one on a different date
+    _write_transcript(
+        tmp_data_root / "transcripts" / "2026-04-21_18-00-00.md",
+        "2026-04-21_18-00-00",
+        "later same day",
+        tmp_data_root,
+    )
+    _write_transcript(
+        tmp_data_root / "transcripts" / "2026-03-01_09-00-00.md",
+        "2026-03-01_09-00-00",
+        "different day",
+        tmp_data_root,
+    )
+
+    reg = SessionsRegistry(data_root=tmp_data_root)
+    reg.refresh()
+
+    # Date prefix match — should return the two 2026-04-21 sessions, descending
+    hits = reg.nearest("2026-04-21")
+    assert "2026-04-21_18-00-00" in hits
+    assert sample_session in hits
+    assert "2026-03-01_09-00-00" not in hits
+
+
+def test_registry_nearest_falls_back_to_top_n_when_no_prefix_hits(tmp_data_root, sample_session):
+    from clawear_mcp.sessions import SessionsRegistry
+
+    reg = SessionsRegistry(data_root=tmp_data_root)
+    reg.refresh()
+
+    # Query with no matching prefix — fall back to top-n of all sessions
+    hits = reg.nearest("1999-01-01", n=5)
+    assert sample_session in hits
+
+
+def test_registry_nearest_empty_registry(tmp_data_root):
+    from clawear_mcp.sessions import SessionsRegistry
+
+    reg = SessionsRegistry(data_root=tmp_data_root)
+    reg.refresh()
+
+    assert reg.nearest("anything") == []
