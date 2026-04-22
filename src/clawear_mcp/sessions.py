@@ -1,0 +1,108 @@
+"""Session registry — discovers session triples and tracks mtime for lazy refresh."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class SessionEntry:
+    session_id: str
+    transcript_path: Path
+    wav_path: Path | None
+    events_path: Path | None
+    transcript_mtime: float
+    has_recording: bool = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.has_recording = self.wav_path is not None
+
+
+class SessionsRegistry:
+    """In-memory map of session_id → SessionEntry, refreshed lazily by scandir+mtime.
+
+    Refresh is cheap (one scandir of transcripts/, mtime compare against cache). Callers
+    should invoke `refresh()` at the start of any tool that reads session data.
+    """
+
+    def __init__(self, data_root: Path) -> None:
+        self._root = Path(data_root)
+        self._entries: dict[str, SessionEntry] = {}
+
+    def list_ids(self) -> list[str]:
+        """Return session_ids sorted by started_at DESC (most recent first)."""
+        return sorted(self._entries.keys(), reverse=True)
+
+    def get(self, session_id: str) -> SessionEntry:
+        if session_id not in self._entries:
+            raise KeyError(session_id)
+        return self._entries[session_id]
+
+    def exists(self, session_id: str) -> bool:
+        return session_id in self._entries
+
+    def nearest(self, session_id: str, n: int = 3) -> list[str]:
+        """Prefix-matched suggestions for an unknown session_id."""
+        ids = self.list_ids()
+        prefix_hits = [s for s in ids if s.startswith(session_id[:10])]
+        return prefix_hits[:n] if prefix_hits else ids[:n]
+
+    def refresh(self) -> dict[str, list[str]]:
+        """Re-scan transcripts/; return {'added': [...], 'modified': [...], 'removed': [...]}."""
+        transcripts_dir = self._root / "transcripts"
+        recordings_dir = self._root / "recordings"
+        events_dir = self._root / "events"
+
+        added: list[str] = []
+        modified: list[str] = []
+        removed: list[str] = []
+
+        on_disk: dict[str, float] = {}
+        if transcripts_dir.exists():
+            with os.scandir(transcripts_dir) as it:
+                for de in it:
+                    if not de.is_file() or not de.name.endswith(".md"):
+                        continue
+                    sid = de.name[:-3]  # strip .md
+                    on_disk[sid] = de.stat().st_mtime
+
+        # Additions + modifications
+        for sid, mtime in on_disk.items():
+            existing = self._entries.get(sid)
+            if existing is None:
+                self._entries[sid] = self._build_entry(
+                    sid, mtime, recordings_dir, events_dir, transcripts_dir
+                )
+                added.append(sid)
+            elif mtime > existing.transcript_mtime:
+                self._entries[sid] = self._build_entry(
+                    sid, mtime, recordings_dir, events_dir, transcripts_dir
+                )
+                modified.append(sid)
+
+        # Removals
+        for sid in list(self._entries.keys()):
+            if sid not in on_disk:
+                del self._entries[sid]
+                removed.append(sid)
+
+        return {"added": added, "modified": modified, "removed": removed}
+
+    @staticmethod
+    def _build_entry(
+        sid: str,
+        mtime: float,
+        recordings_dir: Path,
+        events_dir: Path,
+        transcripts_dir: Path,
+    ) -> SessionEntry:
+        wav = recordings_dir / f"{sid}.wav"
+        jsonl = events_dir / f"{sid}.jsonl"
+        return SessionEntry(
+            session_id=sid,
+            transcript_path=transcripts_dir / f"{sid}.md",
+            wav_path=wav if wav.exists() else None,
+            events_path=jsonl if jsonl.exists() else None,
+            transcript_mtime=mtime,
+        )
