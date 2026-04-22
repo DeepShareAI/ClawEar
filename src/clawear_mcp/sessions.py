@@ -43,8 +43,18 @@ class SessionsRegistry:
         self._entries: dict[str, SessionEntry] = {}
 
     def list_ids(self) -> list[str]:
-        """Return session_ids sorted by started_at DESC (most recent first)."""
-        return sorted(self._entries.keys(), reverse=True)
+        """Return session_ids sorted by started_at DESC (most recent first).
+
+        Ordering uses the cached `started_at` ISO-8601 string when available
+        (populated by server._refresh_and_sync). Empty started_at values sort
+        after populated ones. Session IDs without a cached started_at retain
+        stem-lexicographic order as a deterministic fallback.
+        """
+        return sorted(
+            self._entries.keys(),
+            key=lambda sid: (self._entries[sid].started_at or sid),
+            reverse=True,
+        )
 
     def get(self, session_id: str) -> SessionEntry:
         if session_id not in self._entries:
@@ -53,6 +63,10 @@ class SessionsRegistry:
 
     def exists(self, session_id: str) -> bool:
         return session_id in self._entries
+
+    def evict(self, session_id: str) -> None:
+        """Remove a session entry. Safe to call if the id isn't present."""
+        self._entries.pop(session_id, None)
 
     def nearest(self, session_id: str, n: int = 3) -> list[str]:
         """Prefix-matched suggestions for an unknown session_id."""

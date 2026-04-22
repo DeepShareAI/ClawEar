@@ -1,6 +1,7 @@
 """WAV recording metadata — stdlib `wave` only. No pydub, no ffmpeg."""
 from __future__ import annotations
 
+import struct
 import wave
 from pathlib import Path
 
@@ -42,7 +43,7 @@ def read_recording_info(path: Path, session_id: str) -> dict:
             "bit_depth": sampwidth * 8,
             "parse_error": None,
         }
-    except (wave.Error, EOFError, Exception) as exc:
+    except (wave.Error, EOFError, OSError, struct.error) as exc:
         return {
             "session_id": session_id,
             "path": str(path),

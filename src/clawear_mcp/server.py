@@ -52,7 +52,7 @@ def _refresh_and_sync(ctx: ClawEarContext) -> None:
             # File vanished between scandir and read (e.g. concurrent `ear`
             # cleanup). Drop from registry + FTS so the next refresh can
             # re-discover it or leave it evicted.
-            ctx.registry._entries.pop(sid, None)
+            ctx.registry.evict(sid)
             ctx.index.delete(sid)
             continue
         fm, body = parse_frontmatter(md)
