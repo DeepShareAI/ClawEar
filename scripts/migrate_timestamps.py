@@ -31,13 +31,21 @@ class MigrationResult:
     migrated: int = 0
     skipped: int = 0
     errors: list[str] = None
+    plan: list[dict] = None
 
     def __post_init__(self) -> None:
         if self.errors is None:
             self.errors = []
+        if self.plan is None:
+            self.plan = []
 
     def as_dict(self) -> dict:
-        return {"migrated": self.migrated, "skipped": self.skipped, "errors": self.errors}
+        return {
+            "migrated": self.migrated,
+            "skipped": self.skipped,
+            "errors": self.errors,
+            "plan": self.plan,
+        }
 
 
 def _old_stem_to_local(old_stem: str) -> tuple[str, str] | None:
@@ -87,6 +95,10 @@ def _rewrite_frontmatter(
                 out.append(line)
         else:
             out.append(line)
+    if not fm_ended:
+        raise ValueError(
+            "no YAML frontmatter found (expected leading '---' block)"
+        )
     return "".join(out)
 
 
@@ -117,14 +129,27 @@ def migrate(data_root: Path, dry_run: bool = False) -> dict:
             continue
         new_stem, iso_started_at = converted
 
+        result.plan.append({
+            "old_stem": stem,
+            "new_stem": new_stem,
+            "iso_started_at": iso_started_at,
+        })
+
         if dry_run:
             result.migrated += 1
             continue
 
-        # Rewrite frontmatter BEFORE rename so the write goes to the old path
+        # Rewrite frontmatter with atomic temp-file swap so a mid-write crash
+        # cannot leave a partially-written md on disk.
         md_text = md_path.read_text()
-        new_md_text = _rewrite_frontmatter(md_text, new_stem, iso_started_at, data_root)
-        md_path.write_text(new_md_text)
+        try:
+            new_md_text = _rewrite_frontmatter(md_text, new_stem, iso_started_at, data_root)
+        except ValueError as exc:
+            result.errors.append(f"{md_path.name}: {exc}")
+            continue
+        tmp_path = md_path.with_suffix(md_path.suffix + ".tmp")
+        tmp_path.write_text(new_md_text)
+        tmp_path.replace(md_path)
 
         # Rename the three siblings (whichever exist)
         md_path.rename(transcripts_dir / f"{new_stem}.md")
@@ -152,6 +177,10 @@ def main() -> int:
 
     print(f"Migrating sessions under {args.data_root} (dry_run={args.dry_run})")
     result = migrate(args.data_root, dry_run=args.dry_run)
+    if args.dry_run and result["plan"]:
+        print("  would rename:")
+        for entry in result["plan"]:
+            print(f"    {entry['old_stem']}  →  {entry['new_stem']}  ({entry['iso_started_at']})")
     print(f"  migrated: {result['migrated']}")
     print(f"  skipped (already new format): {result['skipped']}")
     if result["errors"]:

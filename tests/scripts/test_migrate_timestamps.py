@@ -94,3 +94,43 @@ def test_migrate_skips_orphan_files(tmp_path, monkeypatch):
     # Orphan transcript is still renamed (the script operates on whichever files exist)
     assert (tmp_path / "transcripts" / "2026-04-21_12-12-39.md").exists()
     assert result["migrated"] == 1
+
+
+def test_migrate_records_error_for_missing_frontmatter(tmp_path, monkeypatch):
+    from scripts.migrate_timestamps import migrate
+
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    import time
+    time.tzset()
+
+    (tmp_path / "transcripts").mkdir()
+    # No frontmatter at all
+    (tmp_path / "transcripts" / "2026-04-21T04-12-39Z.md").write_text("just body, no frontmatter\n")
+
+    result = migrate(tmp_path)
+
+    assert result["migrated"] == 0
+    assert any("no YAML frontmatter" in e for e in result["errors"])
+    # Original file unchanged on disk
+    assert (tmp_path / "transcripts" / "2026-04-21T04-12-39Z.md").exists()
+
+
+def test_dry_run_returns_plan_without_changing_files(tmp_path, monkeypatch):
+    from scripts.migrate_timestamps import migrate
+
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    import time
+    time.tzset()
+
+    _write_session(tmp_path, "2026-04-21T04-12-39Z", "2026-04-21T04:12:39Z")
+
+    result = migrate(tmp_path, dry_run=True)
+
+    assert result["migrated"] == 1
+    assert len(result["plan"]) == 1
+    assert result["plan"][0]["old_stem"] == "2026-04-21T04-12-39Z"
+    assert result["plan"][0]["new_stem"] == "2026-04-21_12-12-39"
+    assert result["plan"][0]["iso_started_at"] == "2026-04-21T12:12:39+08:00"
+    # Files NOT renamed
+    assert (tmp_path / "transcripts" / "2026-04-21T04-12-39Z.md").exists()
+    assert not (tmp_path / "transcripts" / "2026-04-21_12-12-39.md").exists()
