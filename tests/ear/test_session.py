@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from datetime import datetime, timezone, timedelta
+
 from ear.config import Config
-from ear.session import run
+from ear.session import _format_session_id, run
 from .fake_realtime import FakeRealtimeWS
 from .fake_sounddevice import InputStream, query_devices, default as sd_default
 
@@ -479,9 +481,6 @@ async def test_null_beep_player_when_output_resolve_fails(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # Unit tests for _format_session_id
 # ---------------------------------------------------------------------------
-from datetime import datetime, timezone, timedelta
-
-from ear.session import _format_session_id
 
 
 def test_format_session_id_local_time_with_offset():
@@ -503,3 +502,8 @@ def test_format_session_id_negative_offset():
 
     assert sid == "2026-04-21_09-30-00"
     assert started_at == "2026-04-21T09:30:00-05:00"
+
+
+def test_format_session_id_rejects_naive_datetime():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _format_session_id(datetime(2026, 4, 21, 14, 12, 39))
