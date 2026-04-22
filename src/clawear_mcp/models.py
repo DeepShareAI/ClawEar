@@ -36,12 +36,12 @@ class SearchHit(BaseModel):
 
 class TimelineEntry(BaseModel):
     type: str
-    ts_ms: int | None
-    item_id: str | None
+    ts_ms: int | None = None
+    item_id: str | None = None
 
 
 class EventError(BaseModel):
-    ts_ms: int | None
+    ts_ms: int | None = None
     message: str
 
 
