@@ -82,13 +82,21 @@ def test_fts_index_delete_removes_row(tmp_path):
 
 def test_fts_missing_raises_with_hint(tmp_path, monkeypatch):
     """If FTS5 is not compiled into sqlite3, a clear error is raised."""
+    from unittest.mock import MagicMock
+
     from clawear_mcp.transcripts import TranscriptsIndex, FTS5NotAvailable
 
+    fake_conn = MagicMock()
+    fake_conn.execute.side_effect = sqlite3.OperationalError("no such module: fts5")
+
+    # Patch sqlite3.connect in the transcripts module's namespace so the lazy
+    # _connect() returns our mock. (Connection.execute itself is a C-extension
+    # method and cannot be patched — we replace the whole connection instead.)
+    monkeypatch.setattr(
+        "clawear_mcp.transcripts.sqlite3.connect",
+        lambda *a, **kw: fake_conn,
+    )
+
     idx = TranscriptsIndex(tmp_path / "idx.sqlite3")
-
-    def fake_exec(*args, **kwargs):
-        raise sqlite3.OperationalError("no such module: fts5")
-
-    monkeypatch.setattr(sqlite3.Connection, "execute", fake_exec)
     with pytest.raises(FTS5NotAvailable):
         idx.ensure_schema()
