@@ -14,9 +14,21 @@ class SessionEntry:
     events_path: Path | None
     transcript_mtime: float
     has_recording: bool = field(init=False)
+    event_count: int = field(init=False)
+    # started_at is populated by server._refresh_and_sync after frontmatter parse.
+    # Stored here so list_sessions can filter by time without re-reading every .md.
+    started_at: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
         self.has_recording = self.wav_path is not None
+        if self.events_path is not None and self.events_path.exists():
+            try:
+                with self.events_path.open() as f:
+                    self.event_count = sum(1 for _ in f)
+            except OSError:
+                self.event_count = 0
+        else:
+            self.event_count = 0
 
 
 class SessionsRegistry:

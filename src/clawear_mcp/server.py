@@ -46,17 +46,40 @@ def _refresh_and_sync(ctx: ClawEarContext) -> None:
         ctx.index.delete(sid)
     for sid in changes["added"] + changes["modified"]:
         entry = ctx.registry.get(sid)
-        md = entry.transcript_path.read_text()
+        try:
+            md = entry.transcript_path.read_text()
+        except FileNotFoundError:
+            # File vanished between scandir and read (e.g. concurrent `ear`
+            # cleanup). Drop from registry + FTS so the next refresh can
+            # re-discover it or leave it evicted.
+            ctx.registry._entries.pop(sid, None)
+            ctx.index.delete(sid)
+            continue
         fm, body = parse_frontmatter(md)
-        started_at = fm.get("started_at", "")
+        entry.started_at = fm.get("started_at", "")
         indexable = strip_notes(body)
-        ctx.index.upsert(sid, started_at, indexable)
+        ctx.index.upsert(sid, entry.started_at, indexable)
 
 
 def _session_not_found_error(ctx: ClawEarContext, session_id: str) -> ValueError:
     nearest = ctx.registry.nearest(session_id)
     hint = f"nearest: {nearest}" if nearest else "no sessions indexed"
     return ValueError(f"session '{session_id}' not found. {hint}")
+
+
+def _session_summary(ctx: ClawEarContext, entry) -> dict:
+    """Compute the SessionSummary shape for list_sessions and get_session."""
+    duration_s = 0.0
+    if entry.wav_path is not None:
+        duration_s = read_recording_info(entry.wav_path, session_id=entry.session_id)["duration_s"]
+    return {
+        "session_id": entry.session_id,
+        "started_at": entry.started_at,
+        "duration_s": duration_s,
+        "transcript_size": entry.transcript_path.stat().st_size,
+        "event_count": entry.event_count,
+        "has_recording": entry.has_recording,
+    }
 
 
 def build_server(cfg: Config) -> _Server:
@@ -80,35 +103,24 @@ def build_server(cfg: Config) -> _Server:
         until: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
-        """List sessions in descending started_at order, optionally filtered by time."""
+        """List sessions in descending started_at order, optionally filtered by time.
+
+        `limit` is applied AFTER `since`/`until` filtering — a narrow time window may
+        yield fewer than `limit` results.
+        """
         _refresh_and_sync(ctx)
         out: list[dict] = []
         for sid in ctx.registry.list_ids():
             entry = ctx.registry.get(sid)
-            md = entry.transcript_path.read_text()
-            fm, _body = parse_frontmatter(md)
-            started_at = fm.get("started_at", "")
+            # Use cached started_at (populated by _refresh_and_sync); falls back
+            # to "" for entries that pre-date the refresh. The time filter is
+            # applied BEFORE any disk reads.
+            started_at = entry.started_at
             if since is not None and started_at < since:
                 continue
             if until is not None and started_at >= until:
                 continue
-            event_count = 0
-            if entry.events_path and entry.events_path.exists():
-                with entry.events_path.open() as f:
-                    for _ in f:
-                        event_count += 1
-            duration_s = 0.0
-            if entry.wav_path is not None:
-                info = read_recording_info(entry.wav_path, session_id=sid)
-                duration_s = info["duration_s"]
-            out.append({
-                "session_id": sid,
-                "started_at": started_at,
-                "duration_s": duration_s,
-                "transcript_size": entry.transcript_path.stat().st_size,
-                "event_count": event_count,
-                "has_recording": entry.has_recording,
-            })
+            out.append(_session_summary(ctx, entry))
             if len(out) >= limit:
                 break
         return out
@@ -125,26 +137,14 @@ def build_server(cfg: Config) -> _Server:
         md = entry.transcript_path.read_text()
         fm, _body = parse_frontmatter(md)
 
-        duration_s = 0.0
-        if entry.wav_path is not None:
-            duration_s = read_recording_info(entry.wav_path, session_id=session_id)["duration_s"]
-
-        event_count = 0
-        if entry.events_path and entry.events_path.exists():
-            with entry.events_path.open() as f:
-                for _ in f:
-                    event_count += 1
-
+        summary = _session_summary(ctx, entry)
         return {
-            "session_id": session_id,
-            "started_at": fm.get("started_at", ""),
+            **summary,
             "device": fm.get("device"),
             "sample_rate": fm.get("sample_rate"),
             "transcript_path": str(entry.transcript_path),
             "events_path": str(entry.events_path) if entry.events_path else None,
             "audio_path": str(entry.wav_path) if entry.wav_path else None,
-            "duration_s": duration_s,
-            "event_count": event_count,
             "truncated": fm.get("truncated"),
             "dropped_blocks": fm.get("dropped_blocks"),
         }
@@ -252,8 +252,9 @@ def build_server(cfg: Config) -> _Server:
 
     # ----- resources -----
 
-    @mcp.resource("clawear://recording/{session_id}")
+    @mcp.resource("clawear://recording/{session_id}", mime_type="audio/wav")
     def recording_resource(session_id: str) -> bytes:
+        """Raw PCM WAV bytes for the session's recording."""
         _refresh_and_sync(ctx)
         if not ctx.registry.exists(session_id):
             raise _session_not_found_error(ctx, session_id)
@@ -262,15 +263,17 @@ def build_server(cfg: Config) -> _Server:
             raise ValueError(f"no recording for session '{session_id}'")
         return entry.wav_path.read_bytes()
 
-    @mcp.resource("clawear://transcript/{session_id}")
+    @mcp.resource("clawear://transcript/{session_id}", mime_type="text/markdown")
     def transcript_resource(session_id: str) -> str:
+        """The full transcript markdown file (including frontmatter)."""
         _refresh_and_sync(ctx)
         if not ctx.registry.exists(session_id):
             raise _session_not_found_error(ctx, session_id)
         return ctx.registry.get(session_id).transcript_path.read_text()
 
-    @mcp.resource("clawear://events/{session_id}")
+    @mcp.resource("clawear://events/{session_id}", mime_type="application/jsonl")
     def events_resource(session_id: str) -> str:
+        """Raw OpenAI Realtime JSONL event stream for the session."""
         _refresh_and_sync(ctx)
         if not ctx.registry.exists(session_id):
             raise _session_not_found_error(ctx, session_id)
